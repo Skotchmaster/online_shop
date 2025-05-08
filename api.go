@@ -8,16 +8,13 @@ import (
 	"github.com/labstack/echo/v4"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-)
 
-type Message struct {
-	ID   int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	Text string `json:"text"`
-}
+	"github.com/Skotchmaster/project_for_t_bank/models"
+)
 
 type Response struct {
 	Status  string `json:"status"`
-	Message string `json:"message"`
+	Message string `json:"product"`
 }
 
 type App struct {
@@ -37,14 +34,14 @@ func initDB() (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
 	}
-	if err := db.AutoMigrate(&Message{}); err != nil {
+	if err := db.AutoMigrate(&models.Product{}, &models.User{}); err != nil {
 		return nil, fmt.Errorf("не удалось выполнить миграцию: %w", err)
 	}
 	return db, nil
 }
 
 func (a *App) GetHandler(c echo.Context) error {
-	var messages []Message
+	var messages []models.Product
 	if err := a.DB.Find(&messages).Error; err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
@@ -52,14 +49,14 @@ func (a *App) GetHandler(c echo.Context) error {
 }
 
 func (a *App) PostHandler(c echo.Context) error {
-	var message Message
-	if err := c.Bind(&message); err != nil {
+	var product models.Product
+	if err := c.Bind(&product); err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	if err := a.DB.Create(&message).Error; err != nil {
+	if err := a.DB.Create(&product).Error; err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	return c.JSON(http.StatusCreated, message)
+	return c.JSON(http.StatusCreated, product)
 }
 
 func (a *App) PatchHandler(c echo.Context) error {
@@ -69,20 +66,24 @@ func (a *App) PatchHandler(c echo.Context) error {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 	var payload struct {
-		Text string `json:"text"`
+		Name        string  `json:"name"`
+		Description string  `json:"description"`
+		Price       float64 `json:"price"`
 	}
 	if err := c.Bind(&payload); err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	var msg Message
-	if err := a.DB.First(&msg, id).Error; err != nil {
+	var prod models.Product
+	if err := a.DB.First(&prod, id).Error; err != nil {
 		return errorResponse(c, http.StatusNotFound, fmt.Errorf("сообщение с ID %d не найдено", id))
 	}
-	msg.Text = payload.Text
-	if err := a.DB.Save(&msg).Error; err != nil {
+	prod.Name = payload.Name
+	prod.Description = payload.Description
+	prod.Price = payload.Price
+	if err := a.DB.Save(&prod).Error; err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	return c.JSON(http.StatusOK, msg)
+	return c.JSON(http.StatusOK, prod)
 }
 
 func (a *App) DeleteHandler(c echo.Context) error {
@@ -91,7 +92,7 @@ func (a *App) DeleteHandler(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	if err := a.DB.Delete(&Message{}, id).Error; err != nil {
+	if err := a.DB.Delete(&models.Product{}, id).Error; err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 	return c.NoContent(http.StatusNoContent)
