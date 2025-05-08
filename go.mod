@@ -1,4 +1,4 @@
-module github.com/Skotchmaster/online-shop
+module github.com/Skotchmaster/project_for_t_bank
 
 go 1.24.2
 
