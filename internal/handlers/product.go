@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/Skotchmaster/project_for_t_bank/internal/models"
+	"github.com/Skotchmaster/online_shop/internal/models"
 )
 
 type Response struct {
@@ -17,7 +18,7 @@ type Response struct {
 	Message string `json:"product"`
 }
 
-type App struct {
+type ProductHandler struct {
 	DB *gorm.DB
 }
 
@@ -28,7 +29,7 @@ func errorResponse(c echo.Context, code int, err error) error {
 	})
 }
 
-func initDB() (*gorm.DB, error) {
+func InitDB() (*gorm.DB, error) {
 	dsn := "host=localhost user=postgres password=root port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -40,59 +41,89 @@ func initDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-func (a *App) GetHandler(c echo.Context) error {
+func (h *ProductHandler) GetHandler(c echo.Context) error {
 	var messages []models.Product
-	if err := a.DB.Find(&messages).Error; err != nil {
+	if err := h.DB.Find(&messages).Error; err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 	return c.JSON(http.StatusOK, messages)
 }
 
-func (a *App) PostHandler(c echo.Context) error {
-	var product models.Product
-	if err := c.Bind(&product); err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
+func (h *ProductHandler) CreateProduct(c echo.Context) error {
+	tok, ok := c.Get("user").(*jwt.Token)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, "invalid token")
 	}
-	if err := a.DB.Create(&product).Error; err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
+
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, "invalid token")
 	}
-	return c.JSON(http.StatusCreated, product)
+
+	role := claims["role"].(string)
+	if role != "admin" {
+		return c.JSON(http.StatusBadRequest, "only admin can create a product")
+	}
+
+	var req struct {
+		Name        string  `gorm:"not null"                  json:"name"`
+		Description string  `gorm:"not null"                  json:"description"`
+		Price       float64 `gorm:"not null"                  json:"price"`
+		Count       uint    `json:"count"`
+	}
+
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	prod := models.Product{
+		Name:        req.Name,
+		Description: req.Description,
+		Price:       req.Price,
+		Count:       req.Count,
+	}
+
+	if err := h.DB.Create(&prod); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	return c.JSON(http.StatusCreated, prod)
 }
 
-func (a *App) PatchHandler(c echo.Context) error {
+func (h *ProductHandler) PatchHandler(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	var payload struct {
+	var req struct {
 		Name        string  `json:"name"`
 		Description string  `json:"description"`
 		Price       float64 `json:"price"`
 	}
-	if err := c.Bind(&payload); err != nil {
+	if err := c.Bind(&req); err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 	var prod models.Product
-	if err := a.DB.First(&prod, id).Error; err != nil {
+	if err := h.DB.First(&prod, id).Error; err != nil {
 		return errorResponse(c, http.StatusNotFound, fmt.Errorf("сообщение с ID %d не найдено", id))
 	}
-	prod.Name = payload.Name
-	prod.Description = payload.Description
-	prod.Price = payload.Price
-	if err := a.DB.Save(&prod).Error; err != nil {
+	prod.Name = req.Name
+	prod.Description = req.Description
+	prod.Price = req.Price
+	if err := h.DB.Save(&prod).Error; err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 	return c.JSON(http.StatusOK, prod)
 }
 
-func (a *App) DeleteHandler(c echo.Context) error {
+func (h *ProductHandler) DeleteHandler(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
-	if err := a.DB.Delete(&models.Product{}, id).Error; err != nil {
+	if err := h.DB.Delete(&models.Product{}, id).Error; err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 	return c.NoContent(http.StatusNoContent)

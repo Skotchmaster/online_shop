@@ -1,15 +1,28 @@
 package models
 
+import (
+	"time"
+)
+
 type Product struct {
-	ID          int     `json:"id" gorm:"primaryKey;autoIncrement"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	Price       float64 `json:"price"`
+	ID          int     `gorm:"primaryKey;autoIncrement"  json:"id" `
+	Name        string  `gorm:"not null"                  json:"name"`
+	Description string  `gorm:"not null"                  json:"description"`
+	Price       float64 `gorm:"not null"                  json:"price"`
+	Count       uint    `json:"count"`
 }
 
 type User struct {
 	ID           uint   `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username     string `gorm:"unique;not null"      json:"username"`
-	PasswordHash string `gorm:"not null"             json:"-"`
-	Role         string `gorm:"not null;" json:"role"`
+	Username     string `gorm:"unique;not null"          json:"username"`
+	PasswordHash string `gorm:"not null"                 json:"-"`
+	Role         string `gorm:"not null;"                json:"role"`
+}
+
+type RefreshToken struct {
+	ID        uint      `gorm:"primaryKey"          json:"id"`
+	Token     string    `gorm:"unique;not null"     json:"token"`
+	UserID    uint      `gorm:"index;not null"      json:"user_id"`
+	ExpiresAt time.Time `gorm:"not null"            json:"expires_at"`
+	Revoked   bool      `gorm:"default:false"       json:"revoked"`
 }
