@@ -41,15 +41,7 @@ func InitDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-func (h *ProductHandler) GetHandler(c echo.Context) error {
-	var messages []models.Product
-	if err := h.DB.Find(&messages).Error; err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
-	}
-	return c.JSON(http.StatusOK, messages)
-}
-
-func (h *ProductHandler) CreateProduct(c echo.Context) error {
+func IsAdmin(c echo.Context, err string) error {
 	tok, ok := c.Get("user").(*jwt.Token)
 	if !ok {
 		return c.JSON(http.StatusBadRequest, "invalid token")
@@ -60,9 +52,26 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, "invalid token")
 	}
 
-	role := claims["role"].(string)
+	role := claims["role"]
 	if role != "admin" {
-		return c.JSON(http.StatusBadRequest, "only admin can create a product")
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	return nil
+
+}
+
+func (h *ProductHandler) GetHandler(c echo.Context) error {
+	var messages []models.Product
+	if err := h.DB.Find(&messages).Error; err != nil {
+		return errorResponse(c, http.StatusBadRequest, err)
+	}
+	return c.JSON(http.StatusOK, messages)
+}
+
+func (h *ProductHandler) CreateProduct(c echo.Context) error {
+	if err := IsAdmin(c, "only admin can create a product"); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
 	}
 
 	var req struct {
@@ -90,34 +99,49 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	return c.JSON(http.StatusCreated, prod)
 }
 
-func (h *ProductHandler) PatchHandler(c echo.Context) error {
+func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
+
+	if err := IsAdmin(c, "only admin can patch the product"); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
 	var req struct {
-		Name        string  `json:"name"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
+		Name        string  `gorm:"not null"                  json:"name"`
+		Description string  `gorm:"not null"                  json:"description"`
+		Price       float64 `gorm:"not null"                  json:"price"`
+		Count       uint    `json:"count"`
 	}
+
 	if err := c.Bind(&req); err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
+		return c.JSON(http.StatusBadRequest, err)
 	}
+
 	var prod models.Product
-	if err := h.DB.First(&prod, id).Error; err != nil {
-		return errorResponse(c, http.StatusNotFound, fmt.Errorf("сообщение с ID %d не найдено", id))
+	if err := h.DB.First(&prod, id); err != nil {
+		return c.JSON(http.StatusNotFound, err)
 	}
+
 	prod.Name = req.Name
 	prod.Description = req.Description
 	prod.Price = req.Price
-	if err := h.DB.Save(&prod).Error; err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
+	prod.Count = req.Count
+
+	if h.DB.Save(&prod); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
 	}
+
 	return c.JSON(http.StatusOK, prod)
 }
 
-func (h *ProductHandler) DeleteHandler(c echo.Context) error {
+func (h *ProductHandler) DeleteProduct(c echo.Context) error {
+	if err := IsAdmin(c, "only admin can delete a product"); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {

@@ -32,6 +32,7 @@ func main() {
 	api := e.Group("/product", jwtmiddleware.JWTMiddleware(accessSecret))
 
 	api.POST("", app.CreateProduct)
+	api.PATCH("", app.PatchProduct)
 
 	e.Logger.Fatal(e.Start(":8080"))
 
