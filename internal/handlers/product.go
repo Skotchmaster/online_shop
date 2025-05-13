@@ -35,7 +35,7 @@ func InitDB() (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
 	}
-	if err := db.AutoMigrate(&models.Product{}, &models.User{}); err != nil {
+	if err := db.AutoMigrate(&models.Product{}, &models.User{}, &models.RefreshToken{}, &models.CartItem{}); err != nil {
 		return nil, fmt.Errorf("не удалось выполнить миграцию: %w", err)
 	}
 	return db, nil
@@ -59,14 +59,6 @@ func IsAdmin(c echo.Context, err string) error {
 
 	return nil
 
-}
-
-func (h *ProductHandler) GetHandler(c echo.Context) error {
-	var messages []models.Product
-	if err := h.DB.Find(&messages).Error; err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
-	}
-	return c.JSON(http.StatusOK, messages)
 }
 
 func (h *ProductHandler) CreateProduct(c echo.Context) error {

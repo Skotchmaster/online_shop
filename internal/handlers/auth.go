@@ -19,6 +19,25 @@ type AuthHandler struct {
 	RefreshSecret []byte
 }
 
+func GetID(c echo.Context) (uint, error) {
+	tok, ok := c.Get("user").(*jwt.Token)
+	if !ok {
+		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	}
+
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	}
+
+	id, ok := claims["sub"].(float64)
+	if !ok {
+		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	}
+
+	return uint(id), nil
+}
+
 func (h *AuthHandler) Register(c echo.Context) error {
 	var req struct {
 		Username string
