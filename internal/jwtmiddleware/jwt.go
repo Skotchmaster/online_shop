@@ -9,7 +9,7 @@ func JWTMiddleware(secret []byte) echo.MiddlewareFunc {
 	cfg := echojwt.WithConfig(echojwt.Config{
 		SigningKey:  secret,
 		ContextKey:  "user",
-		TokenLookup: "header:Authorization: Bearer",
+		TokenLookup: "header:Authorization",
 	})
 	return cfg
 }
