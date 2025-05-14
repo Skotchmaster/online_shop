@@ -1,22 +1,24 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 
 	"github.com/Skotchmaster/online_shop/internal/hash"
 	"github.com/Skotchmaster/online_shop/internal/models"
+	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
 
 type AuthHandler struct {
 	DB            *gorm.DB
 	JWTSecret     []byte
 	RefreshSecret []byte
+	Producer      *mykafka.Producer
 }
 
 func GetID(c echo.Context) (uint, error) {
@@ -56,6 +58,20 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		Role:         req.role}
 	if err := h.DB.Create(&user).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	event := map[string]interface{}{
+		"type":     "user_registrated",
+		"UserID":   user.ID,
+		"username": user.Username,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"product_events",
+		fmt.Sprint(user.ID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 
 	return c.JSON(http.StatusOK, user)
@@ -120,6 +136,20 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	if err := h.DB.Create(&refreshModel); err != nil {
 		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	event := map[string]interface{}{
+		"type":     "user_loged_in",
+		"UserID":   user.ID,
+		"username": user.Username,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"user_events",
+		fmt.Sprint(user.ID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{

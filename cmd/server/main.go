@@ -9,7 +9,14 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/jwtmiddleware"
+	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
+
+const (
+	topic = "my-topic"
+)
+
+var address = []string{"localhost:9092"}
 
 func main() {
 	db, err := handlers.InitDB()
@@ -20,9 +27,15 @@ func main() {
 	accessSecret := []byte(os.Getenv("ACCESS_SECRET"))
 	refreshSecret := []byte(os.Getenv("REFRESH_SECRET"))
 
-	productHandler := &handlers.ProductHandler{DB: db}
-	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: accessSecret, RefreshSecret: refreshSecret}
-	cartHandler := &handlers.CartHandler{DB: db}
+	p, err := mykafka.NewProducer(address)
+	if err != nil {
+		log.Fatalf("Kafka producer init error: %v", err)
+	}
+	defer p.Close()
+
+	productHandler := &handlers.ProductHandler{DB: db, Producer: p}
+	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: accessSecret, RefreshSecret: refreshSecret, Producer: p}
+	cartHandler := &handlers.CartHandler{DB: db, Producer: p}
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())

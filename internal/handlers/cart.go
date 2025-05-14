@@ -1,16 +1,19 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/Skotchmaster/online_shop/internal/models"
+	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
 
 type CartHandler struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	Producer *mykafka.Producer
 }
 
 func (h *CartHandler) GetCart(c echo.Context) error {
@@ -22,6 +25,20 @@ func (h *CartHandler) GetCart(c echo.Context) error {
 	var items []models.CartItem
 	if err := h.DB.Where("user_id=?", UserID).Find(&items).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	event := map[string]interface{}{
+		"type":       "get_cart_items",
+		"UserID":     UserID,
+		"cart_items": items,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"cart_events",
+		fmt.Sprint(UserID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 
 	return c.JSON(http.StatusOK, items)
@@ -66,6 +83,20 @@ func (h *CartHandler) AddToCart(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
+	event := map[string]interface{}{
+		"type":      "add_cart_items",
+		"UserID":    UserID,
+		"cart_item": item,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"cart_events",
+		fmt.Sprint(UserID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
+	}
+
 	return c.JSON(http.StatusOK, newitem)
 }
 
@@ -96,11 +127,26 @@ func (h *CartHandler) DeleteOneFromCart(c echo.Context) error {
 		}
 
 	}
+
+	event := map[string]interface{}{
+		"type":          "delete_cart_item",
+		"UserID":        UserID,
+		"deleted_items": item,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"cart_events",
+		fmt.Sprint(UserID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
+	}
+
 	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *CartHandler) DeleteAllFromCart(c echo.Context) error {
-	userID, err := GetID(c)
+	UserID, err := GetID(c)
 	if err != nil {
 		return err
 	}
@@ -112,10 +158,31 @@ func (h *CartHandler) DeleteAllFromCart(c echo.Context) error {
 	}
 
 	if err := h.DB.
-		Where("id = ? AND user_id = ?", id, userID).
+		Where("id = ? AND user_id = ?", id, UserID).
 		Delete(&models.CartItem{}).Error; err != nil {
 
 		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	var remaining []models.CartItem
+	if err := h.DB.Where("user_id = ?", UserID).Find(&remaining).Error; err != nil {
+		c.Logger().Errorf("DB read after delete error: %v", err)
+	}
+
+	event := map[string]interface{}{
+		"type":         "cart_item_deleted",
+		"user_id":      UserID,
+		"deleted_item": id,
+		"remaining":    remaining,
+	}
+
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"cart_events",
+		fmt.Sprint(UserID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

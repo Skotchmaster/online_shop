@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Skotchmaster/online_shop/internal/models"
+	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
 
 type Response struct {
@@ -19,7 +20,8 @@ type Response struct {
 }
 
 type ProductHandler struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	Producer *mykafka.Producer
 }
 
 func errorResponse(c echo.Context, code int, err error) error {
@@ -88,6 +90,20 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
+	event := map[string]interface{}{
+		"type":      "product_created",
+		"productID": prod.ID,
+		"name":      prod.Name,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"product_events",
+		fmt.Sprint(prod.ID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
+	}
+
 	return c.JSON(http.StatusCreated, prod)
 }
 
@@ -125,6 +141,20 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 
 	if h.DB.Save(&prod); err != nil {
 		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	event := map[string]interface{}{
+		"type":      "product_updated",
+		"productID": prod.ID,
+		"name":      prod.Name,
+	}
+	if err := h.Producer.PublishEvent(
+		c.Request().Context(),
+		"product_events",
+		fmt.Sprint(prod.ID),
+		event,
+	); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 
 	return c.JSON(http.StatusOK, prod)
