@@ -3,6 +3,7 @@ module github.com/Skotchmaster/online_shop
 go 1.24.2
 
 require (
+	github.com/confluentinc/confluent-kafka-go/v2 v2.10.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/labstack/echo/v4 v4.13.3
 	golang.org/x/crypto v0.36.0
