@@ -44,20 +44,18 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	var req struct {
 		Username string
 		Password string
-		role     string
 	}
 
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, err.Error)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
 	hash, _ := hash.HashPassword(req.Password)
 	user := models.User{
 		Username:     req.Username,
-		PasswordHash: string(hash),
-		Role:         req.role}
+		PasswordHash: string(hash)}
 	if err := h.DB.Create(&user).Error; err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
 	event := map[string]interface{}{
@@ -85,15 +83,15 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
 
 	var user models.User
-	if err := h.DB.Where("username?", req.Username).First(&user).Error; err != nil {
+	if err := h.DB.Where("username = ?", req.Username).First(&user).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, "invalid username or password")
 	}
 
-	if hash.ChekPassword(user.PasswordHash, req.Password) != true {
+	if !hash.ChekPassword(user.PasswordHash, req.Password) {
 		return c.JSON(http.StatusUnauthorized, "invalid username or password")
 	}
 
@@ -102,7 +100,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		role = "admin"
 	}
 
-	accesExp := time.Now().Add(time.Minute * 15).Unix()
+	accesExp := time.Now().Add(100*time.Hour + time.Minute*15).Unix()
 	accesClaims := jwt.MapClaims{
 		"sub":  user.ID,
 		"role": user.Role,
@@ -110,6 +108,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	tokenAcces := jwt.NewWithClaims(jwt.SigningMethodHS256, accesClaims)
+	tokenAcces.Header["kid"] = "v1"
 	accesToken, err := tokenAcces.SignedString(h.JWTSecret)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, err)
@@ -130,12 +129,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	refreshModel := models.RefreshToken{
 		Token:     refreshToken,
 		UserID:    user.ID,
-		ExpiresAt: time.Unix(accesExp, 0),
+		ExpiresAt: time.Unix(refreshExp, 0),
 		Revoked:   false,
 	}
 
-	if err := h.DB.Create(&refreshModel); err != nil {
-		return c.JSON(http.StatusInternalServerError, err)
+	if err := h.DB.Create(&refreshModel).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
 	event := map[string]interface{}{

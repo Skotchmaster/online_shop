@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -32,7 +33,16 @@ func errorResponse(c echo.Context, code int, err error) error {
 }
 
 func InitDB() (*gorm.DB, error) {
-	dsn := "host=localhost user=postgres password=root port=5432 sslmode=disable"
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
+
+	dsn := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname,
+	)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
@@ -139,7 +149,7 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	prod.Price = req.Price
 	prod.Count = req.Count
 
-	if h.DB.Save(&prod); err != nil {
+	if err := h.DB.Save(&prod); err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
