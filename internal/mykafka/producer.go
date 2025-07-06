@@ -3,69 +3,67 @@ package mykafka
 import (
 	"context"
 	"encoding/json"
-
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/segmentio/kafka-go"
 )
 
 const (
-	flushTimeout = 5000
+	writeTimeout = 5 * time.Second
 )
 
 type Producer struct {
-	producer *kafka.Producer
+	writers map[string]*kafka.Writer
 }
 
-func NewProducer(address []string) (*Producer, error) {
-	config := &kafka.ConfigMap{
-		"bootstrap.servers": strings.Join(address, ","),
+func NewProducer(brokers []string, topics []string) (*Producer, error) {
+	if len(topics) == 0 {
+		return nil, fmt.Errorf("no topics provided")
 	}
-	p, err := kafka.NewProducer(config)
-	if err != nil {
-		return nil, err
+	p := &Producer{writers: make(map[string]*kafka.Writer, len(topics))}
+	for _, topic := range topics {
+		p.writers[topic] = kafka.NewWriter(kafka.WriterConfig{
+			Brokers:  brokers,
+			Topic:    topic,
+			Balancer: &kafka.LeastBytes{},
+		})
 	}
-
-	return &Producer{producer: p}, nil
-
+	return p, nil
 }
 
 func (p *Producer) PublishEvent(ctx context.Context, topic, key string, event interface{}) error {
+	w, ok := p.writers[topic]
+	if !ok {
+		return fmt.Errorf("unknown topic %q", topic)
+	}
+
 	data, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("kafka: json.Marshal failed: %w", err)
+		return fmt.Errorf("json.Marshal failed: %w", err)
 	}
 
-	msg := &kafka.Message{
-		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-		Value:          data,
-		Key:            []byte(key),
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+
+	msg := kafka.Message{
+		Key:   []byte(key),
+		Value: data,
+		Time:  time.Now(),
 	}
 
-	deliveryChan := make(chan kafka.Event, 1)
-	defer close(deliveryChan)
-
-	if err := p.producer.Produce(msg, deliveryChan); err != nil {
-		return fmt.Errorf("kafka: Produce failed: %w", err)
+	if err := w.WriteMessages(ctx, msg); err != nil {
+		return fmt.Errorf("WriteMessages failed: %w", err)
 	}
-
-	select {
-	case e := <-deliveryChan:
-		if m := e.(*kafka.Message); m.TopicPartition.Error != nil {
-			return fmt.Errorf("kafka: delivery failed: %w", m.TopicPartition.Error)
-		}
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("kafka: delivery timeout")
-	}
-
 	return nil
 }
 
-func (p *Producer) Close() {
-	p.producer.Flush(flushTimeout)
-	p.producer.Close()
+func (p *Producer) Close() error {
+	var firstErr error
+	for topic, w := range p.writers {
+		if err := w.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("closing writer %q failed: %w", topic, err)
+		}
+	}
+	return firstErr
 }
