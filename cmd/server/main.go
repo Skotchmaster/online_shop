@@ -12,12 +12,6 @@ import (
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
 
-const (
-	topic = "my-topic"
-)
-
-var address = []string{"kafka:9092"}
-
 func main() {
 	db, err := handlers.InitDB()
 	if err != nil {
@@ -31,15 +25,17 @@ func main() {
 		"v1": accessV1,
 	}
 
-	p, err := mykafka.NewProducer(address)
+	brokers := []string{"localhost:9092"}
+	topics := []string{"user_events", "cart_events", "product_events"}
+	prod, err := mykafka.NewProducer(brokers, topics)
 	if err != nil {
-		log.Fatalf("Kafka producer init error: %v", err)
+		log.Fatal(err)
 	}
-	defer p.Close()
+	defer prod.Close()
 
-	productHandler := &handlers.ProductHandler{DB: db, Producer: p}
-	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: accessV1, RefreshSecret: refreshV1, Producer: p}
-	cartHandler := &handlers.CartHandler{DB: db, Producer: p}
+	productHandler := &handlers.ProductHandler{DB: db, Producer: prod}
+	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: accessV1, RefreshSecret: refreshV1, Producer: prod}
+	cartHandler := &handlers.CartHandler{DB: db, Producer: prod}
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
