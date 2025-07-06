@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -63,9 +64,13 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		"UserID":   user.ID,
 		"username": user.Username,
 	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
-		"product_events",
+		ctx,
+		"user_events",
 		fmt.Sprint(user.ID),
 		event,
 	); err != nil {
@@ -100,7 +105,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		role = "admin"
 	}
 
-	accesExp := time.Now().Add(100*time.Hour + time.Minute*15).Unix()
+	accesExp := time.Now().Add(time.Minute * 15).Unix()
 	accesClaims := jwt.MapClaims{
 		"sub":  user.ID,
 		"role": user.Role,
@@ -142,8 +147,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		"UserID":   user.ID,
 		"username": user.Username,
 	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"user_events",
 		fmt.Sprint(user.ID),
 		event,

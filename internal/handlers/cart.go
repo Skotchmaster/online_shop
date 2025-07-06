@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
@@ -32,8 +34,11 @@ func (h *CartHandler) GetCart(c echo.Context) error {
 		"UserID":     UserID,
 		"cart_items": items,
 	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"cart_events",
 		fmt.Sprint(UserID),
 		event,
@@ -88,8 +93,12 @@ func (h *CartHandler) AddToCart(c echo.Context) error {
 		"UserID":    UserID,
 		"cart_item": item,
 	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"cart_events",
 		fmt.Sprint(UserID),
 		event,
@@ -133,8 +142,12 @@ func (h *CartHandler) DeleteOneFromCart(c echo.Context) error {
 		"UserID":        UserID,
 		"deleted_items": item,
 	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"cart_events",
 		fmt.Sprint(UserID),
 		event,
@@ -175,9 +188,11 @@ func (h *CartHandler) DeleteAllFromCart(c echo.Context) error {
 		"deleted_item": id,
 		"remaining":    remaining,
 	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
 
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"cart_events",
 		fmt.Sprint(UserID),
 		event,

@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -105,8 +107,12 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 		"productID": prod.ID,
 		"name":      prod.Name,
 	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"product_events",
 		fmt.Sprint(prod.ID),
 		event,
@@ -158,8 +164,12 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 		"productID": prod.ID,
 		"name":      prod.Name,
 	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
 	if err := h.Producer.PublishEvent(
-		c.Request().Context(),
+		ctx,
 		"product_events",
 		fmt.Sprint(prod.ID),
 		event,
@@ -181,6 +191,23 @@ func (h *ProductHandler) DeleteProduct(c echo.Context) error {
 	}
 	if err := h.DB.Delete(&models.Product{}, id).Error; err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+
+	event := map[string]interface{}{
+		"type":      "product_deleted",
+		"productID": id,
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
+	if err := h.Producer.PublishEvent(
+		ctx,
+		"product_event",
+		fmt.Sprint(id),
+		event,
+	); err != nil {
+		c.Logger().Errorf("kafka publish error: %v", err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
