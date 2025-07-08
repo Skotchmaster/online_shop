@@ -22,25 +22,6 @@ type AuthHandler struct {
 	Producer      *mykafka.Producer
 }
 
-func GetID(c echo.Context) (uint, error) {
-	tok, ok := c.Get("user").(*jwt.Token)
-	if !ok {
-		return 0, c.JSON(http.StatusBadRequest, "invalid token")
-	}
-
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return 0, c.JSON(http.StatusBadRequest, "invalid token")
-	}
-
-	id, ok := claims["sub"].(float64)
-	if !ok {
-		return 0, c.JSON(http.StatusBadRequest, "invalid token")
-	}
-
-	return uint(id), nil
-}
-
 func CreateCookie(name string, value string, path string, exp_time time.Time) *http.Cookie {
 	cookie := &http.Cookie{
 		Name:     name,

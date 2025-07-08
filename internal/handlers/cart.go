@@ -9,6 +9,7 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -16,6 +17,25 @@ import (
 type CartHandler struct {
 	DB       *gorm.DB
 	Producer *mykafka.Producer
+}
+
+func GetID(c echo.Context) (uint, error) {
+	tok, ok := c.Get("user").(*jwt.Token)
+	if !ok {
+		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	}
+
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	}
+
+	id, ok := claims["sub"].(float64)
+	if !ok {
+		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	}
+
+	return uint(id), nil
 }
 
 func (h *CartHandler) GetCart(c echo.Context) error {
