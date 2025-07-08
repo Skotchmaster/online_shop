@@ -2,11 +2,11 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/jwtmiddleware"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
@@ -18,10 +18,15 @@ func main() {
 		log.Fatalf("Ошибка инициализации БД: %v", err)
 	}
 
-	access := []byte(os.Getenv("ACCESS_SECRET"))
-	refresh := []byte(os.Getenv("REFRESH_SECRET"))
+	configuration, err := config.LoadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	brokers := []string{"localhost:9092"}
+	access := []byte(configuration.ACCESS_SECRET)
+	refresh := []byte(configuration.KAFKA_ADDRESS)
+
+	brokers := []string{configuration.KAFKA_ADDRESS}
 	topics := []string{"user_events", "cart_events", "product_events"}
 	prod, err := mykafka.NewProducer(brokers, topics)
 	if err != nil {

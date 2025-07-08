@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
@@ -36,13 +35,14 @@ func errorResponse(c echo.Context, code int, err error) error {
 }
 
 func InitDB() (*gorm.DB, error) {
-	if err := godotenv.Load(".env"); err != nil {
-		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
+	configuration, err := config.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("не удалось загрузить .env файл %w", err)
 	}
-	port := os.Getenv("DB_PORT")
-	user := os.Getenv("DB_USER")
-	password := os.Getenv("DB_PASSWORD")
-	dbname := os.Getenv("DB_NAME")
+	port := configuration.DB_PORT
+	user := configuration.DB_USER
+	password := configuration.DB_PASSWORD
+	dbname := configuration.DB_NAME
 
 	dsn := fmt.Sprintf(
 		"port=%s user=%s password=%s dbname=%s sslmode=disable",
