@@ -18,12 +18,8 @@ func main() {
 		log.Fatalf("Ошибка инициализации БД: %v", err)
 	}
 
-	accessV1 := []byte(os.Getenv("ACCESS_SECRET_V1"))
-	refreshV1 := []byte(os.Getenv("REFRESH_SECRET_V2"))
-
-	accessKeyStore := map[string][]byte{
-		"v1": accessV1,
-	}
+	access := []byte(os.Getenv("ACCESS_SECRET"))
+	refresh := []byte(os.Getenv("REFRESH_SECRET"))
 
 	brokers := []string{"localhost:9092"}
 	topics := []string{"user_events", "cart_events", "product_events"}
@@ -34,7 +30,7 @@ func main() {
 	defer prod.Close()
 
 	productHandler := &handlers.ProductHandler{DB: db, Producer: prod}
-	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: accessV1, RefreshSecret: refreshV1, Producer: prod}
+	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: access, RefreshSecret: refresh, Producer: prod}
 	cartHandler := &handlers.CartHandler{DB: db, Producer: prod}
 	e := echo.New()
 	e.Use(middleware.Logger())
@@ -43,7 +39,7 @@ func main() {
 	e.POST("/register", authHandler.Register)
 	e.POST("/login", authHandler.Login)
 
-	api := e.Group("", jwtmiddleware.JWTMiddleware(accessKeyStore))
+	api := e.Group("", jwtmiddleware.JWTMiddleware(access))
 
 	api.POST("/product", productHandler.CreateProduct)
 	api.PATCH("/product/:id", productHandler.PatchProduct)
