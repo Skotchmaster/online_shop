@@ -41,6 +41,20 @@ func GetID(c echo.Context) (uint, error) {
 	return uint(id), nil
 }
 
+func CreateCookie(name string, value string, path string, exp_time time.Time) *http.Cookie {
+	cookie := &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		Expires:  exp_time,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+
+	return cookie
+}
+
 func (h *AuthHandler) Register(c echo.Context) error {
 	var req struct {
 		Username string
@@ -105,21 +119,21 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		role = "admin"
 	}
 
-	accesExp := time.Now().Add(time.Minute * 15).Unix()
-	accesClaims := jwt.MapClaims{
+	accessExp := time.Now().Add(time.Minute * 15)
+	accessClaims := jwt.MapClaims{
 		"sub":  user.ID,
 		"role": user.Role,
-		"exp":  accesExp,
+		"exp":  accessExp,
 	}
 
-	tokenAcces := jwt.NewWithClaims(jwt.SigningMethodHS256, accesClaims)
+	tokenAcces := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	tokenAcces.Header["kid"] = "v1"
 	accesToken, err := tokenAcces.SignedString(h.JWTSecret)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
-	refreshExp := time.Now().Add(7 * 24 * time.Hour).Unix()
+	refreshExp := time.Now().Add(7 * 24 * time.Hour)
 	refreshClaims := jwt.MapClaims{
 		"sub": user.ID,
 		"exp": refreshExp,
@@ -134,13 +148,19 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	refreshModel := models.RefreshToken{
 		Token:     refreshToken,
 		UserID:    user.ID,
-		ExpiresAt: time.Unix(refreshExp, 0),
+		ExpiresAt: time.Time(refreshExp),
 		Revoked:   false,
 	}
 
 	if err := h.DB.Create(&refreshModel).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
+
+	accessCookie := CreateCookie("accesToken", accesToken, "/", accessExp)
+	c.SetCookie(accessCookie)
+
+	refreshCookie := CreateCookie("refreshToken", refreshToken, "/", refreshExp)
+	c.SetCookie(refreshCookie)
 
 	event := map[string]interface{}{
 		"type":     "user_loged_in",
