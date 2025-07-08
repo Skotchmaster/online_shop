@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -35,15 +36,17 @@ func errorResponse(c echo.Context, code int, err error) error {
 }
 
 func InitDB() (*gorm.DB, error) {
-	host := os.Getenv("DB_HOST")
+	if err := godotenv.Load(".env"); err != nil {
+		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
+	}
 	port := os.Getenv("DB_PORT")
 	user := os.Getenv("DB_USER")
 	password := os.Getenv("DB_PASSWORD")
 	dbname := os.Getenv("DB_NAME")
 
 	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname,
+		"port=%s user=%s password=%s dbname=%s sslmode=disable",
+		port, user, password, dbname,
 	)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
