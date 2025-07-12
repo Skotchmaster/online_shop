@@ -8,8 +8,8 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
-	"github.com/Skotchmaster/online_shop/internal/jwtmiddleware"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
+	"github.com/Skotchmaster/online_shop/internal/service"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	access := []byte(configuration.ACCESS_SECRET)
+	jwt_secret := []byte(configuration.JWT_SECRET)
 	refresh := []byte(configuration.KAFKA_ADDRESS)
 
 	brokers := []string{configuration.KAFKA_ADDRESS}
@@ -34,9 +34,10 @@ func main() {
 	}
 	defer prod.Close()
 
-	productHandler := &handlers.ProductHandler{DB: db, Producer: prod}
-	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: access, RefreshSecret: refresh, Producer: prod}
-	cartHandler := &handlers.CartHandler{DB: db, Producer: prod}
+	productHandler := &handlers.ProductHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
+	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwt_secret, RefreshSecret: refresh, Producer: prod}
+	cartHandler := &handlers.CartHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
+	serviceHandler := &service.TokenService{DB: db, RefreshSecret: refresh, JWTSecret: jwt_secret}
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
@@ -44,8 +45,10 @@ func main() {
 	e.POST("/register", authHandler.Register)
 	e.POST("/login", authHandler.Login)
 
-	api := e.Group("", jwtmiddleware.JWTMiddleware(access))
+	api := e.Group("/api")
+	api.Use(serviceHandler.AutoRefreshMiddleware)
 
+	api.GET("/product/:id", productHandler.GetProduct)
 	api.POST("/product", productHandler.CreateProduct)
 	api.PATCH("/product/:id", productHandler.PatchProduct)
 	api.DELETE("/product/:id", productHandler.DeleteProduct)
@@ -56,5 +59,4 @@ func main() {
 	api.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
 
 	e.Logger.Fatal(e.Start(":8080"))
-
 }
