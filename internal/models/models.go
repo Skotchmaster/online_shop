@@ -1,9 +1,5 @@
 package models
 
-import (
-	"time"
-)
-
 type Product struct {
 	ID          int     `gorm:"primaryKey;autoIncrement"  json:"id" `
 	Name        string  `gorm:"not null"                  json:"name"`
@@ -20,11 +16,12 @@ type User struct {
 }
 
 type RefreshToken struct {
-	ID        uint      `gorm:"primaryKey"          json:"id"`
-	Token     string    `gorm:"unique;not null"     json:"token"`
-	UserID    uint      `gorm:"index;not null"      json:"user_id"`
-	ExpiresAt time.Time `gorm:"not null"            json:"expires_at"`
-	Revoked   bool      `gorm:"default:false"       json:"revoked"`
+	ID        uint   `gorm:"primaryKey"          json:"id"`
+	Role      string `gorm:"not null"            json:"role"`
+	Token     string `gorm:"unique;not null"     json:"token"`
+	UserID    uint   `gorm:"index;not null"      json:"user_id"`
+	ExpiresAt int64  `gorm:"not null"            json:"expires_at"`
+	Revoked   bool   `gorm:"default:false"       json:"revoked"`
 }
 
 type CartItem struct {
