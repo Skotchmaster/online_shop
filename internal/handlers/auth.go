@@ -49,7 +49,8 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	hash, _ := hash.HashPassword(req.Password)
 	user := models.User{
 		Username:     req.Username,
-		PasswordHash: string(hash)}
+		PasswordHash: string(hash),
+		Role:         "user"}
 	if err := h.DB.Create(&user).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": err.Error()})
 	}
@@ -71,6 +72,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	); err != nil {
 		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
+	user.PasswordHash = "you don't have rights to see it"
 
 	return c.JSON(http.StatusOK, user)
 
@@ -104,11 +106,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	accessClaims := jwt.MapClaims{
 		"sub":  user.ID,
 		"role": user.Role,
-		"exp":  accessExp,
+		"exp":  accessExp.Unix(),
 	}
 
 	tokenAcces := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	tokenAcces.Header["kid"] = "v1"
 	accesToken, err := tokenAcces.SignedString(h.JWTSecret)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, err)
@@ -116,9 +117,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	refreshExp := time.Now().Add(7 * 24 * time.Hour)
 	refreshClaims := jwt.MapClaims{
-		"sub": user.ID,
-		"exp": refreshExp,
-		"typ": "refresh",
+		"sub":  user.ID,
+		"role": role,
+		"exp":  refreshExp,
+		"typ":  "refresh",
 	}
 	tokenRef := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshToken, err := tokenRef.SignedString(h.RefreshSecret)
@@ -127,9 +129,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	refreshModel := models.RefreshToken{
+		Role:      role,
 		Token:     refreshToken,
 		UserID:    user.ID,
-		ExpiresAt: time.Time(refreshExp),
+		ExpiresAt: time.Time(refreshExp).Unix(),
 		Revoked:   false,
 	}
 
@@ -137,7 +140,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
 	}
 
-	accessCookie := CreateCookie("accesToken", accesToken, "/", accessExp)
+	accessCookie := CreateCookie("accessToken", accesToken, "/", accessExp)
 	c.SetCookie(accessCookie)
 
 	refreshCookie := CreateCookie("refreshToken", refreshToken, "/", refreshExp)
