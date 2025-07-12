@@ -23,8 +23,9 @@ type Response struct {
 }
 
 type ProductHandler struct {
-	DB       *gorm.DB
-	Producer *mykafka.Producer
+	DB        *gorm.DB
+	Producer  *mykafka.Producer
+	JWTSecret []byte
 }
 
 func errorResponse(c echo.Context, code int, err error) error {
@@ -58,29 +59,61 @@ func InitDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-func IsAdmin(c echo.Context, err string) error {
-	tok, ok := c.Get("user").(*jwt.Token)
-	if !ok {
-		return c.JSON(http.StatusBadRequest, "invalid token")
+func IsAdmin(c echo.Context, jwt_secret []byte) error {
+	cookie, err := c.Cookie("accessToken")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "missing auth cookie")
 	}
 
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return c.JSON(http.StatusBadRequest, "invalid token")
+	tokenString := cookie.Value
+	if tokenString == "" {
+		return echo.NewHTTPError(http.StatusUnauthorized, "empty token")
 	}
 
-	role := claims["role"]
+	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return jwt_secret, nil
+	})
+	if err != nil || !token.Valid {
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid token claims")
+	}
+	roleRaw, hasRole := claims["role"]
+	role, ok := roleRaw.(string)
+	if !hasRole || !ok {
+		return echo.NewHTTPError(http.StatusForbidden, "role claim missing")
+	}
 	if role != "admin" {
-		return c.JSON(http.StatusBadRequest, err)
+		return echo.NewHTTPError(http.StatusForbidden, "only admin can perform this action")
 	}
 
 	return nil
+}
 
+func (h *ProductHandler) GetProduct(c echo.Context) error {
+	idParam := c.Param("id")
+	id, err := strconv.Atoi(idParam)
+	if err != nil {
+		return errorResponse(c, http.StatusBadRequest, err)
+	}
+
+	product := models.Product{}
+	if err := h.DB.Where("ID=?", id).First(&product).Error; err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	return c.JSON(http.StatusOK, product)
 }
 
 func (h *ProductHandler) CreateProduct(c echo.Context) error {
-	if err := IsAdmin(c, "only admin can create a product"); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+	if err := IsAdmin(c, h.JWTSecret); err != nil {
+		return err
 	}
 
 	var req struct {
@@ -101,7 +134,7 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 		Count:       req.Count,
 	}
 
-	if err := h.DB.Create(&prod); err != nil {
+	if err := h.DB.Create(&prod).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
@@ -133,8 +166,8 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 
-	if err := IsAdmin(c, "only admin can patch the product"); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+	if err := IsAdmin(c, h.JWTSecret); err != nil {
+		return err
 	}
 
 	var req struct {
@@ -149,7 +182,7 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	}
 
 	var prod models.Product
-	if err := h.DB.First(&prod, id); err != nil {
+	if err := h.DB.First(&prod, id).Error; err != nil {
 		return c.JSON(http.StatusNotFound, err)
 	}
 
@@ -158,7 +191,7 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	prod.Price = req.Price
 	prod.Count = req.Count
 
-	if err := h.DB.Save(&prod); err != nil {
+	if err := h.DB.Save(&prod).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
@@ -184,8 +217,8 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 }
 
 func (h *ProductHandler) DeleteProduct(c echo.Context) error {
-	if err := IsAdmin(c, "only admin can delete a product"); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+	if err := IsAdmin(c, h.JWTSecret); err != nil {
+		return err
 	}
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
