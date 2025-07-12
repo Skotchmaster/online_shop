@@ -15,33 +15,50 @@ import (
 )
 
 type CartHandler struct {
-	DB       *gorm.DB
-	Producer *mykafka.Producer
+	DB        *gorm.DB
+	Producer  *mykafka.Producer
+	JWTSecret []byte
 }
 
-func GetID(c echo.Context) (uint, error) {
-	tok, ok := c.Get("user").(*jwt.Token)
-	if !ok {
-		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+func GetID(c echo.Context, jwt_secret []byte) (uint, error) {
+	cookie, err := c.Cookie("accessToken")
+	if err != nil {
+		return 0, echo.NewHTTPError(http.StatusUnauthorized, "missing auth cookie")
+	}
+	tokenString := cookie.Value
+	if tokenString == "" {
+		return 0, echo.NewHTTPError(http.StatusUnauthorized, "empty token")
 	}
 
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return jwt_secret, nil
+	})
+	if err != nil {
+		return 0, echo.NewHTTPError(http.StatusUnauthorized, "invalid token: "+err.Error())
+	}
+	if !token.Valid {
+		return 0, echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
 	}
 
-	id, ok := claims["sub"].(float64)
+	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return 0, c.JSON(http.StatusBadRequest, "invalid token")
+		return 0, echo.NewHTTPError(http.StatusUnauthorized, "invalid token claims")
+	}
+	subRaw, ok := claims["sub"].(float64)
+	if !ok {
+		return 0, echo.NewHTTPError(http.StatusBadRequest, "invalid subject claim")
 	}
 
-	return uint(id), nil
+	return uint(subRaw), nil
 }
 
 func (h *CartHandler) GetCart(c echo.Context) error {
-	UserID, err := GetID(c)
+	UserID, err := GetID(c, h.JWTSecret)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, "invalid token")
+		return err
 	}
 
 	var items []models.CartItem
@@ -71,9 +88,9 @@ func (h *CartHandler) GetCart(c echo.Context) error {
 }
 
 func (h *CartHandler) AddToCart(c echo.Context) error {
-	UserID, err := GetID(c)
+	UserID, err := GetID(c, h.JWTSecret)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, "invalid token")
+		return err
 	}
 
 	var req struct {
@@ -88,30 +105,19 @@ func (h *CartHandler) AddToCart(c echo.Context) error {
 		req.Quantity = 1
 	}
 
-	var item models.CartItem
-	if err := h.DB.Where("user_id=? AND product_id=?", UserID, req.ProductID).First(&item).Error; err == nil {
-		item.Quantity += req.Quantity
-		h.DB.Save(&item)
-	}
-
-	if err != gorm.ErrRecordNotFound {
-		return c.JSON(http.StatusBadRequest, err)
-	}
-
-	newitem := models.CartItem{
+	newItem := models.CartItem{
 		UserID:    UserID,
 		ProductID: req.ProductID,
-		Quantity:  req.Quantity,
+		Quantity:  req.ProductID,
 	}
-
-	if err := h.DB.Create(&newitem); err != nil {
+	if err := h.DB.Create(&newItem).Error; err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
 	event := map[string]interface{}{
 		"type":      "add_cart_items",
 		"UserID":    UserID,
-		"cart_item": item,
+		"cart_item": newItem,
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
@@ -126,11 +132,11 @@ func (h *CartHandler) AddToCart(c echo.Context) error {
 		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 
-	return c.JSON(http.StatusOK, newitem)
+	return c.JSON(http.StatusOK, newItem)
 }
 
 func (h *CartHandler) DeleteOneFromCart(c echo.Context) error {
-	UserID, err := GetID(c)
+	UserID, err := GetID(c, h.JWTSecret)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, "invalid token")
 	}
@@ -179,7 +185,7 @@ func (h *CartHandler) DeleteOneFromCart(c echo.Context) error {
 }
 
 func (h *CartHandler) DeleteAllFromCart(c echo.Context) error {
-	UserID, err := GetID(c)
+	UserID, err := GetID(c, h.JWTSecret)
 	if err != nil {
 		return err
 	}
