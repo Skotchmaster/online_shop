@@ -171,3 +171,23 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	})
 
 }
+
+func (h *AuthHandler) LogOut(c echo.Context) error {
+	refreshCookie, err := c.Cookie("refreshToken")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	if err := h.DB.Where("token=?", refreshCookie.Value).Update("revored", true); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
+	}
+
+	expired := time.Now().Add(-1 * time.Hour)
+
+	c.SetCookie(CreateCookie("accesstoken", "/", "/", expired))
+	c.SetCookie(CreateCookie("refreshtoken", "/", "/", expired))
+
+	return c.JSON(http.StatusOK, echo.Map{
+		"massage": "logged out",
+	})
+}
