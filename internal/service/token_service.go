@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -43,15 +42,6 @@ func (t *TokenService) RotateToken(rawToken string) (string, string, error) {
 
 	return newAccess, newRefresh, nil
 
-}
-
-func (t *TokenService) RevokeRefresh(DB *gorm.DB, token string) error {
-
-	if err := DB.Where("token=?", token).Update("revoked", true).Error; err != nil {
-		return fmt.Errorf("DB error: %w", err)
-	}
-
-	return nil
 }
 
 func (t *TokenService) AutoRefreshMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
