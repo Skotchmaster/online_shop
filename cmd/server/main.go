@@ -44,6 +44,7 @@ func main() {
 
 	e.POST("/register", authHandler.Register)
 	e.POST("/login", authHandler.Login)
+	e.POST("/logout", authHandler.LogOut)
 
 	api := e.Group("/api")
 	api.Use(serviceHandler.AutoRefreshMiddleware)
