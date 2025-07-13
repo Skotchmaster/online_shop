@@ -1,6 +1,6 @@
 # Online Shop
 
-Тестовый проект интернет-магазина на Go с использованием JWT, Docker, Kafka, PostgreSQL и нейросети для интеллектуального подбора товаров. Цель проекта — продемонстрировать настройку полного бэкенд-стека, включая аутентификацию, работу с БД, ML-инструменты и асинхронные события.
+Тестовый проект интернет-магазина на Go с использованием JWT, Docker, Kafka, PostgreSQL. Цель проекта — продемонстрировать настройку полного бэкенд-стека, включая аутентификацию, работу с БД и асинхронные события.
 
 ---
 
@@ -13,11 +13,10 @@
 3. [Структура репозитория](#структура-репозитория)
 4. [Установка и запуск](#установка-и-запуск)
 5. [Настройка окружения](#настройка-окружения)
-6. [Docker и Docker Compose](#docker-и-docker-compose)
-7. [API Endpoints](#api-endpoints)
-8. [Аутентификация и JWT](#аутентификация-и-jwt)
-9. [Kafka-события](#kafka-события)
-10. [Работа с базой данных](#работа-с-базой-данных)
+6. [API Endpoints](#api-endpoints)
+7. [Аутентификация и JWT](#аутентификация-и-jwt)
+8. [Kafka-события](#kafka-события)
+9. [Работа с базой данных](#работа-с-базой-данных)
 
 ---
 
@@ -29,7 +28,6 @@
 * Выдачу и проверку JWT (access и refresh токены с версионированием ключей)
 * CRUD-операции над товарами (только для админов)
 * Управление корзиной пользователя
-* Нейросеть для интеллектуального подбора товаров на основе предпочтений пользователя
 * Асинхронную отправку событий в Kafka
 * Хранение данных в PostgreSQL через GORM
 * Запуск в Docker-контейнере и оркестрацию через Docker Compose
@@ -48,19 +46,22 @@
 ## Структура репозитория
 
 ```
-├── cmd/server            # Точка входа приложения
+├── cmd/server              # Точка входа приложения
 ├── internal
-│   ├── handlers         # HTTP handlers (Auth, Product, Cart)
-│   ├── jwtmiddleware    # Middleware для JWT с KeyFunc
-│   ├── models           # Модели GORM (User, Product, CartItem, RefreshToken)
-│   ├── mykafka          # Обёртка для Kafka-производителя
-│   └── hash             # Утилиты для хеширования паролей
-│   └── neuronet         # Нейросетевые алгоритмы подбора товаров
-├── Dockerfile           # Мультистадийная сборка Go-приложения
-├── docker-compose.yml   # Сборка и запуск всех сервисов (DB, Kafka, Zookeeper, App)
+│   ├── handlers            # HTTP handlers (Auth, Product, Cart)
+│   ├── config              # файл с получением данныех из .env файла
+│   ├── models              # Модели GORM (User, Product, CartItem, RefreshToken)
+│   ├── mykafka             # Обёртка для Kafka-производителя
+│   ├── hash                # Утилиты для хеширования паролей
+│   └── service
+│       ├── token_helpers   # Функции для работы токен сервисов
+│       └── token_service   # Основные функции для работы токенов
+├── Dockerfile              # Мультистадийная сборка Go-приложения
+├── docker-compose.yml      # Сборка и запуск всех сервисов (DB, Kafka, Zookeeper, App)
 ├── go.mod
 ├── go.sum
-└── README.md            # Этот файл
+├── .env
+└── README.md               # Этот файл
 ```
 
 ## Установка и запуск
@@ -70,20 +71,6 @@
    ```bash
    git clone https://github.com/Skotchmaster/online_shop.git
    cd online_shop
-
-2. **Настройте переменные окружения** (пример в `docker-compose.yml`)
-
-3. **Запустите через Docker Compose**
-
-   ```bash
-   docker-compose up --build
-   ```
-
-   После запуска:
-
-   * Приложение доступно на `http://localhost:8080`
-   * PostgreSQL — на `localhost:5432`
-   * Kafka — на `localhost:9092`
 
 ## Настройка окружения
 
@@ -105,16 +92,6 @@ ACCESS_SECRET_V1=yourAccessSecretV1
 REFRESH_SECRET_V1=yourRefreshSecretV1
 
 ```
-## Docker и Docker Compose
-
-В `docker-compose.yml` описаны следующие сервисы:
-
-* **zookeeper** (Confluent CP)
-* **kafka** (Confluent CP)
-* **db** (PostgreSQL)
-* **app** (ваше Go-приложение)
-
-Образ приложения собирается из `Dockerfile`
 
 ## API Endpoints
 
@@ -122,6 +99,7 @@ REFRESH_SECRET_V1=yourRefreshSecretV1
 
 * **POST /register** — регистрация пользователя
 * **POST /login** — логин и выдача `access_token` + `refresh_token`
+* **POST /logout** - выход из аккаунта
 
 ### Защищённые (JWT Middleware)
 
@@ -133,6 +111,7 @@ REFRESH_SECRET_V1=yourRefreshSecretV1
 
 #### Корзина (роль `user` или `admin`)
 
+* **GET /product/:id** - посмотреть товар подробнее
 * **GET /cart** — получить список товаров в корзине
 * **POST /cart** — добавить товар в корзину (body: `{ProductID, Quantity}`)
 * **DELETE /cart/:id** — уменьшить количество или удалить товар
@@ -143,17 +122,12 @@ REFRESH_SECRET_V1=yourRefreshSecretV1
 * **Access Token** (HS256, 15 мин по умолчанию)
 
   * Выдается при `/login`
-  * Содержит `sub` (UserID), `role`, `exp`, `kid`
+  * Содержит `sub` (UserID), `role`, `exp`,
 * **Refresh Token** (HS256, 7 дней)
 
   * Содержит `sub`, `exp`, `typ = refresh`
   * Хранится в БД для возможности отзыва
 
-### Key Rotation
-
-* В заголовке JWT поле `kid` указывает версию ключа (например, `v1`)
-* В `jwtmiddleware` используется `KeyFunc`, которое по `kid` выбирает нужный секрет из `map[string][]byte`
-* Позволяет безопасно ротировать секреты без слома выданных токенов
 
 ## Kafka-события
 
