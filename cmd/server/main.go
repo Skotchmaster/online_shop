@@ -24,7 +24,7 @@ func main() {
 	}
 
 	jwt_secret := []byte(configuration.JWT_SECRET)
-	refresh := []byte(configuration.KAFKA_ADDRESS)
+	refresh := []byte(configuration.REFRESH_SECRET)
 
 	brokers := []string{configuration.KAFKA_ADDRESS}
 	topics := []string{"user_events", "cart_events", "product_events"}
