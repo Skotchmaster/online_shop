@@ -8,6 +8,7 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
+	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	"github.com/Skotchmaster/online_shop/internal/service"
 )
@@ -36,7 +37,7 @@ func main() {
 
 	productHandler := &handlers.ProductHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
 	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwt_secret, RefreshSecret: refresh, Producer: prod}
-	cartHandler := &handlers.CartHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
+	cartHandler := &cart.CartHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
 	serviceHandler := &service.TokenService{DB: db, RefreshSecret: refresh, JWTSecret: jwt_secret}
 	e := echo.New()
 	e.Use(middleware.Logger())
@@ -56,6 +57,7 @@ func main() {
 
 	api.GET("/cart", cartHandler.GetCart)
 	api.POST("/cart", cartHandler.AddToCart)
+	api.POST("/cart/order", cartHandler.MakeOrder)
 	api.DELETE("/cart/:id", cartHandler.DeleteOneFromCart)
 	api.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
 

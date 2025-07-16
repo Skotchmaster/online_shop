@@ -53,7 +53,7 @@ func InitDB() (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
 	}
-	if err := db.AutoMigrate(&models.Product{}, &models.User{}, &models.RefreshToken{}, &models.CartItem{}); err != nil {
+	if err := db.AutoMigrate(&models.Product{}, &models.User{}, &models.RefreshToken{}, &models.CartItem{}, &models.Order{}, &models.OrderItem{}); err != nil {
 		return nil, fmt.Errorf("не удалось выполнить миграцию: %w", err)
 	}
 	return db, nil
