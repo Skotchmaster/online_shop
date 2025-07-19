@@ -12,7 +12,7 @@ import (
 func TestGetProduct(t *testing.T) {
 	env := newTestEnv(t)
 
-	accessToken, refreshToken := login_admin(t, env)
+	accessToken, refreshToken := login(t, env)
 	ck_r := &http.Cookie{Name: "refreshToken", Value: refreshToken, Path: "/"}
 	ck_a := &http.Cookie{Name: "accessToken", Value: accessToken, Path: "/"}
 

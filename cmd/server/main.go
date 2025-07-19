@@ -49,19 +49,19 @@ func main() {
 
 	api := e.Group("/api")
 	api.Use(serviceHandler.AutoRefreshMiddleware)
+	api_admin := e.Group("/admin")
+	api_admin.Use(serviceHandler.AutoRefreshMiddlewareAdmin)
+
+	api_admin.POST("/product", productHandler.CreateProduct)
+	api_admin.PATCH("/product/:id", productHandler.PatchProduct)
+	api_admin.DELETE("/product/:id", productHandler.DeleteProduct)
 
 	api.GET("/product/:id", productHandler.GetProduct)
-	api.POST("/product", productHandler.CreateProduct)
-	api.PATCH("/product/:id", productHandler.PatchProduct)
-	api.DELETE("/product/:id", productHandler.DeleteProduct)
-
-	api_admin := e.Group("/api_admin")
-	api_admin.Use(serviceHandler.AutoRefreshMiddlewareAdmin)
-	api_admin.GET("/cart", cartHandler.GetCart)
-	api_admin.POST("/cart", cartHandler.AddToCart)
-	api_admin.POST("/cart/order", cartHandler.MakeOrder)
-	api_admin.DELETE("/cart/:id", cartHandler.DeleteOneFromCart)
-	api_admin.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
+	api.GET("/cart", cartHandler.GetCart)
+	api.POST("/cart", cartHandler.AddToCart)
+	api.POST("/cart/order", cartHandler.MakeOrder)
+	api.DELETE("/cart/:id", cartHandler.DeleteOneFromCart)
+	api.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
