@@ -55,11 +55,13 @@ func main() {
 	api.PATCH("/product/:id", productHandler.PatchProduct)
 	api.DELETE("/product/:id", productHandler.DeleteProduct)
 
-	api.GET("/cart", cartHandler.GetCart)
-	api.POST("/cart", cartHandler.AddToCart)
-	api.POST("/cart/order", cartHandler.MakeOrder)
-	api.DELETE("/cart/:id", cartHandler.DeleteOneFromCart)
-	api.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
+	api_admin := e.Group("/api_admin")
+	api_admin.Use(serviceHandler.AutoRefreshMiddlewareAdmin)
+	api_admin.GET("/cart", cartHandler.GetCart)
+	api_admin.POST("/cart", cartHandler.AddToCart)
+	api_admin.POST("/cart/order", cartHandler.MakeOrder)
+	api_admin.DELETE("/cart/:id", cartHandler.DeleteOneFromCart)
+	api_admin.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
 
 	e.Logger.Fatal(e.Start(":8080"))
 }

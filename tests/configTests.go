@@ -10,6 +10,7 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
+	"github.com/Skotchmaster/online_shop/internal/hash"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	"github.com/glebarez/sqlite"
@@ -26,10 +27,6 @@ type testEnv struct {
 	P                        *handlers.ProductHandler
 	DB                       *gorm.DB
 	JWTSecret, RefreshSecret []byte
-}
-
-func (env *testEnv) NewContext(s string, param any) echo.Context {
-	panic("unimplemented")
 }
 
 func InitTestDB(t *testing.T) *gorm.DB {
@@ -90,4 +87,57 @@ func (env *testEnv) doJSONRequest(method, path string, body interface{}, cookies
 	rec := httptest.NewRecorder()
 	c := env.E.NewContext(req, rec)
 	return rec, rec.Body.Bytes(), c
+}
+
+func login(t *testing.T, env *testEnv) (string, string) {
+
+	loadmap := map[string]string{
+		"username": "username",
+		"password": "password",
+	}
+	rec_register, _, c_register := env.doJSONRequest(http.MethodPost, "/register", loadmap)
+	require.NoError(t, env.A.Register(c_register))
+	require.Equal(t, http.StatusOK, rec_register.Code)
+
+	rec_login, _, c_login := env.doJSONRequest(http.MethodPost, "/login", loadmap)
+	require.NoError(t, env.A.Login(c_login))
+	require.Equal(t, http.StatusOK, rec_login.Code)
+
+	var resp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	require.NoError(t, json.Unmarshal(rec_login.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.AccessToken)
+
+	return resp.AccessToken, resp.RefreshToken
+}
+
+func login_admin(t *testing.T, env *testEnv) (string, string) {
+	hash, _ := hash.HashPassword("test_password")
+	loadmap := models.User{
+		Username:     "test_user",
+		PasswordHash: hash,
+		Role:         "admin",
+	}
+
+	env.DB.Create(&loadmap)
+
+	new_loadmad := map[string]string{
+		"username": "test_user",
+		"password": "test_password",
+	}
+
+	rec_login, _, c_login := env.doJSONRequest(http.MethodPost, "/login", new_loadmad)
+	require.NoError(t, env.A.Login(c_login))
+	require.Equal(t, http.StatusOK, rec_login.Code)
+
+	var resp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	require.NoError(t, json.Unmarshal(rec_login.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.AccessToken)
+
+	return resp.AccessToken, resp.RefreshToken
 }

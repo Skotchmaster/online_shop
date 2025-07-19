@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -59,43 +58,6 @@ func InitDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-func IsAdmin(c echo.Context, jwt_secret []byte) error {
-	cookie, err := c.Cookie("accessToken")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "missing auth cookie")
-	}
-
-	tokenString := cookie.Value
-	if tokenString == "" {
-		return echo.NewHTTPError(http.StatusUnauthorized, "empty token")
-	}
-
-	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return jwt_secret, nil
-	})
-	if err != nil || !token.Valid {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid token claims")
-	}
-	roleRaw, hasRole := claims["role"]
-	role, ok := roleRaw.(string)
-	if !hasRole || !ok {
-		return echo.NewHTTPError(http.StatusForbidden, "role claim missing")
-	}
-	if role != "admin" {
-		return echo.NewHTTPError(http.StatusForbidden, "only admin can perform this action")
-	}
-
-	return nil
-}
-
 func (h *ProductHandler) GetProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
@@ -112,10 +74,6 @@ func (h *ProductHandler) GetProduct(c echo.Context) error {
 }
 
 func (h *ProductHandler) CreateProduct(c echo.Context) error {
-	if err := IsAdmin(c, h.JWTSecret); err != nil {
-		return err
-	}
-
 	var req struct {
 		Name        string  `gorm:"not null"                  json:"name"`
 		Description string  `gorm:"not null"                  json:"description"`
@@ -166,10 +124,6 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 
-	if err := IsAdmin(c, h.JWTSecret); err != nil {
-		return err
-	}
-
 	var req struct {
 		Name        string  `gorm:"not null"                  json:"name"`
 		Description string  `gorm:"not null"                  json:"description"`
@@ -217,9 +171,6 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 }
 
 func (h *ProductHandler) DeleteProduct(c echo.Context) error {
-	if err := IsAdmin(c, h.JWTSecret); err != nil {
-		return err
-	}
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {

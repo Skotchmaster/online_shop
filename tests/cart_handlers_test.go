@@ -9,30 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func login(t *testing.T, env *testEnv) (string, string) {
-
-	loadmap := map[string]string{
-		"username": "username",
-		"password": "password",
-	}
-	rec_register, _, c_register := env.doJSONRequest(http.MethodPost, "/register", loadmap)
-	require.NoError(t, env.A.Register(c_register))
-	require.Equal(t, http.StatusOK, rec_register.Code)
-
-	rec_login, _, c_login := env.doJSONRequest(http.MethodPost, "/login", loadmap)
-	require.NoError(t, env.A.Login(c_login))
-	require.Equal(t, http.StatusOK, rec_login.Code)
-
-	var resp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-	}
-	require.NoError(t, json.Unmarshal(rec_login.Body.Bytes(), &resp))
-	require.NotEmpty(t, resp.AccessToken)
-
-	return resp.AccessToken, resp.RefreshToken
-}
-
 func TestGetCart(t *testing.T) {
 	env := newTestEnv(t)
 
