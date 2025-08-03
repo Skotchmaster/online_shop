@@ -35,9 +35,9 @@ services:
   db:
     image: postgres:13
     environment:
-      POSTGRES_DB: online_shop
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: root
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     healthcheck:
@@ -54,20 +54,16 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=root
-      - DB_NAME=online_shop
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
 
-      - KAFKA_ADDRESS=kafka:9092
+      - KAFKA_ADDRESS=${KAFKA_ADDRESS}
 
-      - ACCESS_SECRET_V1=yourAccessSecretV1
-      - REFRESH_SECRET_V1=yourRefreshSecretV1
+      - ACCESS_SECRET=${ACCESS_SECRET}
+      - REFRESH_SECRET=${REFRESH_SECRET}
 
-      - TZ=Europe/Moscow
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
     ports:
       - "8080:8080"
