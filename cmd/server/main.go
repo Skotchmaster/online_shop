@@ -7,10 +7,11 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/Skotchmaster/online_shop/internal/config"
+	"github.com/Skotchmaster/online_shop/internal/es"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
-	"github.com/Skotchmaster/online_shop/internal/service"
+	"github.com/Skotchmaster/online_shop/internal/service/token"
 )
 
 func main() {
@@ -35,10 +36,16 @@ func main() {
 	}
 	defer prod.Close()
 
+	es, err := es.NewClient(configuration)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	productHandler := &handlers.ProductHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
 	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwt_secret, RefreshSecret: refresh, Producer: prod}
 	cartHandler := &cart.CartHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
-	serviceHandler := &service.TokenService{DB: db, RefreshSecret: refresh, JWTSecret: jwt_secret}
+	serviceHandler := &token.TokenService{DB: db, RefreshSecret: refresh, JWTSecret: jwt_secret}
+	searchHandler := &handlers.SearchHandler{ES: es, Index: "product"}
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
@@ -47,6 +54,7 @@ func main() {
 	e.POST("/login", authHandler.Login)
 	e.POST("/logout", authHandler.LogOut)
 
+	e.GET("/search", searchHandler.Handler)
 	api := e.Group("/api")
 	api.Use(serviceHandler.AutoRefreshMiddleware)
 	api_admin := e.Group("/admin")
