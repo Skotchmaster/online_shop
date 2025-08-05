@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	db, err := handlers.InitDB()
+	db, err := config.InitDB()
 	if err != nil {
 		log.Fatalf("Ошибка инициализации БД: %v", err)
 	}

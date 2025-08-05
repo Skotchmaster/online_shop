@@ -8,10 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
@@ -32,30 +30,6 @@ func errorResponse(c echo.Context, code int, err error) error {
 		Status:  "error",
 		Message: err.Error(),
 	})
-}
-
-func InitDB() (*gorm.DB, error) {
-	configuration, err := config.LoadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("не удалось загрузить .env файл %w", err)
-	}
-	port := configuration.DB_PORT
-	user := configuration.DB_USER
-	password := configuration.DB_PASSWORD
-	dbname := configuration.DB_NAME
-
-	dsn := fmt.Sprintf(
-		"port=%s user=%s password=%s dbname=%s sslmode=disable",
-		port, user, password, dbname,
-	)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
-	}
-	if err := db.AutoMigrate(&models.Product{}, &models.User{}, &models.RefreshToken{}, &models.CartItem{}, &models.Order{}, &models.OrderItem{}); err != nil {
-		return nil, fmt.Errorf("не удалось выполнить миграцию: %w", err)
-	}
-	return db, nil
 }
 
 func (h *ProductHandler) GetProduct(c echo.Context) error {
