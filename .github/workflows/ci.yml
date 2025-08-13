@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure .env exists
+        run: touch .env
+        
       - name: Build images
         run: docker compose build --no-cache
 
