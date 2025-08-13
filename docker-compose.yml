@@ -3,106 +3,123 @@ services:
     image: confluentinc/cp-zookeeper:7.4.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-    ports:
-      - "2181:2181"
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,srvr,stat,mntr,conf,cons"
     healthcheck:
-      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
+      test: ["CMD-SHELL", "echo 'ls /' | zookeeper-shell localhost:2181 >/dev/null 2>&1"]
       interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - backend
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - zk_data:/var/lib/zookeeper/data
+      - zk_log:/var/lib/zookeeper/log
+    networks: [backend]
+
+
+
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
+    env_file: [.env]
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      zookeeper: { condition: service_healthy }
     environment:
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://host.docker.internal:29092
+      KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      KAFKA_LISTENERS: PLAINTEXT://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    ports:
-      - "9092:9092"
-      - "29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
     volumes:
       - kafka_data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - backend
+    networks: [backend]
 
   db:
-    image: postgres:13
+    image: postgres:16
     environment:
-      POSTGRES_HOST: DB_HOST
-      POSTGRES_DB: online_shop
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-root}
+      POSTGRES_DB: ${POSTGRES_DB:-online_shop}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-online_shop}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes: [pg_data:/var/lib/postgresql/data]
+    networks: [backend]
+
+  dbtest:
+    image: postgres:16
+    environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: root
-    ports:
-      - "5432:5432"
-    volumes:
-      - pg_data:/var/lib/postgresql/data
+      POSTGRES_DB: test_db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d online_shop"]
-      interval: 5s
+      test: ["CMD-SHELL","pg_isready -U postgres -d test_db"]
+      interval: 2s
       timeout: 3s
-      retries: 5
+      retries: 30
     networks:
-      - backend
+      backend:
+        aliases:
+          - db_test
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
-    environment:
-      - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-      - xpack.security.enabled=false
-    ports:
-      - "9200:9200"
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.2
+    env_file: [.env]
+    environment: ["discovery.type=single-node","xpack.security.enabled=false"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q \"status\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - backend
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    volumes: [es_data:/usr/share/elasticsearch/data]
+    networks: [backend]
 
   app:
     build: .
     depends_on:
-      db:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
+      db: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    env_file: [.env]
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=root
-      - DB_NAME=online_shop
-      - KAFKA_ADDRESS=kafka:9092
-      - ACCESS_SECRET=yourAccessSecret
-      - REFRESH_SECRET=yourRefreshSecret
-      - DB_SSLMODE=disable
-      - DB_TIMEOUT=5
-      - ES_PORT=9200
-      - ES_USER=
-      - ES_PASSWORD=
-      - ES_URL=http://elasticsearch:9200
-    ports:
-      - "8080:8080"
-    networks:
-      - backend
+      KAFKA_ADDRESS: kafka:9092
+      ES_URL: http://elasticsearch:9200
+    ports: ["8080:8080"]
+    networks: [backend]
+
+  tester:
+    build: { context: ., target: tester }
+    depends_on:
+      dbtest: { condition: service_healthy }
+      kafka:   { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      DB_HOST: dbtest
+      DB_NAME: test_db
+      KAFKA_ADDRESS: kafka:9092
+      ES_URL: http://elasticsearch:9200
+    command: ["go","test","-v","-count=1","./tests/..."]
+    networks: [backend]
+
 
 volumes:
+  zk_data:
+  zk_log:
   kafka_data:
   pg_data:
   es_data:
