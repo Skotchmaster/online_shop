@@ -2,20 +2,25 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/hash"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
-	"github.com/glebarez/sqlite"
 	"github.com/labstack/echo/v4"
+	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -30,17 +35,35 @@ type testEnv struct {
 }
 
 func InitTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to connect to in-memory db: %v", err)
-		return nil
-	}
+	dsn := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		"postgres", "root", "dbtest", "5432", "test_db",
+	)
+	db, _ := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	if err := db.AutoMigrate(&models.CartItem{}, &models.Product{}, &models.RefreshToken{}, &models.User{}, &models.Order{}, &models.OrderItem{}); err != nil {
 		t.Fatalf("failed to migrate tables: %v", err)
 	}
 
 	return db
+}
+
+func (env *testEnv) ClearDB() {
+
+	tables := []string{
+		"order_items",
+		"orders",
+		"cart_items",
+		"refresh_tokens",
+		"users",
+		"products",
+	}
+
+	query := fmt.Sprintf(
+		"TRUNCATE TABLE %s RESTART IDENTITY CASCADE",
+		strings.Join(tables, ", "),
+	)
+	env.DB.Exec(query)
 }
 
 func LoadConfig(t *testing.T) (*gorm.DB, []byte, []byte) {
@@ -52,25 +75,135 @@ func LoadConfig(t *testing.T) (*gorm.DB, []byte, []byte) {
 	return db, jwt_secret, refresh
 }
 
+func WaitForKafkaTopic(t *testing.T, topic string) {
+	conn, err := kafka.Dial("tcp", "kafka:9092")
+	if err != nil {
+		t.Fatalf("Failed to connect to Kafka: %v", err)
+	}
+	defer conn.Close()
+
+	for i := 0; i < 10; i++ {
+		partitions, err := conn.ReadPartitions(topic)
+		if err == nil && len(partitions) > 0 {
+			return
+		}
+		t.Logf("Topic %s not found (attempt %d)", topic, i+1)
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatalf("Topic %s not created after 20 seconds", topic)
+}
+
 func newTestEnv(t *testing.T) *testEnv {
 	db, jwt, refresh := LoadConfig(t)
-	a := &handlers.AuthHandler{
+
+	ensureTopics(t, "kafka:9092", "user_events", "cart_events", "product_events")
+
+	WaitForKafkaTopic(t, "user_events")
+	WaitForKafkaTopic(t, "cart_events")
+	WaitForKafkaTopic(t, "product_events")
+	prod, err := mykafka.NewProducer(
+		[]string{"kafka:9092"},
+		[]string{"user_events", "cart_events", "product_events"},
+	)
+	if err != nil {
+		t.Fatalf("Failed to create Kafka producer: %v", err)
+	}
+
+	env := &testEnv{
+		T:             t,
+		E:             echo.New(),
 		DB:            db,
 		JWTSecret:     jwt,
 		RefreshSecret: refresh,
-		Producer:      &mykafka.Producer{},
 	}
-	c := &cart.CartHandler{
+
+	env.ClearDB()
+	env.A = &handlers.AuthHandler{
+		DB:            db,
+		JWTSecret:     jwt,
+		RefreshSecret: refresh,
+		Producer:      prod,
+	}
+
+	env.C = &cart.CartHandler{
 		DB:        db,
 		JWTSecret: jwt,
-		Producer:  &mykafka.Producer{},
+		Producer:  prod,
 	}
-	p := &handlers.ProductHandler{
+
+	env.P = &handlers.ProductHandler{
 		DB:        db,
 		JWTSecret: jwt,
-		Producer:  &mykafka.Producer{},
+		Producer:  prod,
 	}
-	return &testEnv{T: t, E: echo.New(), A: a, C: c, P: p, DB: db, JWTSecret: jwt, RefreshSecret: refresh}
+
+	t.Cleanup(func() {
+		env.ClearDB()
+		prod.Close()
+	})
+
+	return env
+}
+
+func consumeNextEvent(t *testing.T, topic string, produce func()) map[string]interface{} {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	conn, err := kafka.DialLeader(ctx, "tcp", "kafka:9092", topic, 0)
+	require.NoError(t, err)
+	end, err := conn.ReadLastOffset()
+	require.NoError(t, err)
+	_ = conn.Close()
+
+	r := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:   []string{"kafka:9092"},
+		Topic:     topic,
+		Partition: 0,
+		MinBytes:  1,
+		MaxBytes:  10e6,
+		MaxWait:   time.Second,
+	})
+	defer r.Close()
+	require.NoError(t, r.SetOffset(end))
+
+	produce()
+
+	m, err := r.ReadMessage(ctx)
+	require.NoError(t, err)
+
+	var event map[string]interface{}
+	require.NoError(t, json.Unmarshal(m.Value, &event))
+	return event
+}
+
+func ensureTopics(t *testing.T, broker string, topics ...string) {
+	t.Helper()
+
+	conn, err := kafka.Dial("tcp", broker)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	require.NoError(t, err)
+
+	admin, err := kafka.Dial("tcp", fmt.Sprintf("%s:%d", controller.Host, controller.Port))
+	require.NoError(t, err)
+	defer admin.Close()
+
+	var cfgs []kafka.TopicConfig
+	for _, tp := range topics {
+		cfgs = append(cfgs, kafka.TopicConfig{
+			Topic:             tp,
+			NumPartitions:     1,
+			ReplicationFactor: 1,
+		})
+	}
+
+	err = admin.CreateTopics(cfgs...)
+	if err != nil && !strings.Contains(err.Error(), "Topic with this name already exists") {
+		require.NoError(t, err)
+	}
 }
 
 func (env *testEnv) doJSONRequest(method, path string, body interface{}, cookies ...*http.Cookie) (*httptest.ResponseRecorder, []byte, echo.Context) {

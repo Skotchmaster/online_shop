@@ -25,7 +25,7 @@ func TestGetProduct(t *testing.T) {
 
 	env.DB.Create(&test_product)
 
-	rec, _, c := env.doJSONRequest(http.MethodGet, "/api/product/1", test_product, ck_r, ck_a)
+	rec, _, c := env.doJSONRequest(http.MethodGet, "/api/product/1", "", ck_r, ck_a)
 	c.SetParamNames("id")
 	c.SetParamValues("1")
 	require.NoError(t, env.P.GetProduct(c))
@@ -47,12 +47,23 @@ func TestCreateProduct(t *testing.T) {
 	ck_r := &http.Cookie{Name: "refreshToken", Value: refreshToken, Path: "/"}
 	ck_a := &http.Cookie{Name: "accessToken", Value: accessToken, Path: "/"}
 
-	rec, _, c := env.doJSONRequest(http.MethodPost, "/api/product", nil, ck_r, ck_a)
-	require.NoError(t, env.P.CreateProduct(c))
-	require.Equal(t, http.StatusCreated, rec.Code)
+	test_product := models.Product{
+		Name:        "test_name",
+		Description: "test_description",
+		Price:       1,
+		Count:       1,
+	}
 
 	var Resp models.Product
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &Resp))
+	event := consumeNextEvent(t, "product_events", func() {
+		rec, _, c := env.doJSONRequest(http.MethodPost, "/api/product", test_product, ck_r, ck_a)
+		require.NoError(t, env.P.CreateProduct(c))
+		require.Equal(t, http.StatusCreated, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &Resp))
+	})
+	require.Equal(t, "product_created", event["type"])
+	require.EqualValues(t, 1, event["productID"])
+	require.Equal(t, "test_name", event["name"])
 }
 
 func TestPatchProduct(t *testing.T) {
@@ -86,14 +97,25 @@ func TestPatchProduct(t *testing.T) {
 
 	var Resp models.Product
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &Resp))
-	require.Equal(t, uint(1), Resp.ID)
+	require.EqualValues(t, 1, Resp.ID)
 	require.Equal(t, "test_name_1", Resp.Name)
 	require.Equal(t, "test_description_1", Resp.Description)
-	require.Equal(t, float64(2), Resp.Price)
-	require.Equal(t, uint(2), Resp.Count)
+	require.EqualValues(t, 2, Resp.Price)
+	require.EqualValues(t, 2, Resp.Count)
+
+	event := consumeNextEvent(t, "product_events", func() {
+		rec2, _, c2 := env.doJSONRequest(http.MethodDelete, "/api/product/1", load_map, ck_r, ck_a)
+		c2.SetParamNames("id")
+		c2.SetParamValues("1")
+		require.NoError(t, env.P.PatchProduct(c2))
+		require.Equal(t, http.StatusOK, rec2.Code)
+	})
+	require.Equal(t, "product_updated", event["type"])
+	require.EqualValues(t, 1, event["productID"])
+	require.Equal(t, "test_name_1", event["name"])
 }
 
-func TestDeletProduct(t *testing.T) {
+func TestDeleteProduct(t *testing.T) {
 	env := newTestEnv(t)
 
 	accessToken, refreshToken := login_admin(t, env)
@@ -108,10 +130,13 @@ func TestDeletProduct(t *testing.T) {
 	}
 
 	env.DB.Create(&test_product)
-	rec, _, c := env.doJSONRequest(http.MethodDelete, "/api/product/1", nil, ck_r, ck_a)
-	c.SetParamNames("id")
-	c.SetParamValues("1")
-	require.NoError(t, env.P.DeleteProduct(c))
-	require.Equal(t, http.StatusNoContent, rec.Code)
-
+	event := consumeNextEvent(t, "product_events", func() {
+		rec, _, c := env.doJSONRequest(http.MethodDelete, "/api/product/1", nil, ck_r, ck_a)
+		c.SetParamNames("id")
+		c.SetParamValues("1")
+		require.NoError(t, env.P.DeleteProduct(c))
+		require.Equal(t, http.StatusNoContent, rec.Code)
+	})
+	require.Equal(t, "product_deleted", event["type"])
+	require.EqualValues(t, 1, event["productID"])
 }

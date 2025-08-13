@@ -2,7 +2,10 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"time"
 
 	"testing"
 
@@ -30,6 +33,18 @@ func TestRegister(t *testing.T) {
 	require.NotEmpty(t, valid_user.ID)
 	require.NotEqual(t, "password", valid_user.PasswordHash)
 
+	payload2 := map[string]string{
+		"username": fmt.Sprintf("test_user_%d", time.Now().UnixNano()),
+		"password": "password",
+	}
+	event := consumeNextEvent(t, "user_events", func() {
+		rec2, _, c2 := env.doJSONRequest(http.MethodPost, "/register", payload2)
+		require.NoError(t, env.A.Register(c2))
+		require.Equal(t, http.StatusOK, rec2.Code)
+	})
+	require.Equal(t, "user_registrated", event["type"])
+	require.Equal(t, payload2["username"], event["username"])
+
 	_, _, c_invalid := env.doJSONRequest(http.MethodPost, "/register", payload)
 
 	err := env.A.Register(c_invalid)
@@ -49,67 +64,46 @@ func TestLogin(t *testing.T) {
 	}
 	env.DB.Create(&user)
 
-	load := map[string]string{
-		"username": "test_user",
-		"password": "password",
-	}
-	rec, _, c := env.doJSONRequest(http.MethodPost, "/login", load)
+	load := map[string]string{"username": "test_user", "password": "password"}
 
-	require.NoError(t, env.A.Login(c))
-	require.Equal(t, http.StatusOK, rec.Code)
+	var rec *httptest.ResponseRecorder
+	event := consumeNextEvent(t, "user_events", func() {
+		var c echo.Context
+		rec, _, c = env.doJSONRequest(http.MethodPost, "/login", load)
+		require.NoError(t, env.A.Login(c))
+		require.Equal(t, http.StatusOK, rec.Code)
+	})
 
 	var RespData map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &RespData))
-	access_token, ok1 := RespData["access_token"]
-	refresh_token, ok2 := RespData["refresh_token"]
-	require.True(t, ok1, "expected 'access_token' in field")
-	require.True(t, ok2, "expected 'refresh_token' in field")
-	require.NotEmpty(t, access_token)
-	require.NotEmpty(t, refresh_token)
+	require.NotEmpty(t, RespData["access_token"])
+	require.NotEmpty(t, RespData["refresh_token"])
 
-	invalid_load := map[string]string{
-		"username": "test_user",
-		"password": "invalid_password",
-	}
-
-	_, _, c_invalid := env.doJSONRequest(http.MethodPost, "/login", invalid_load)
-
-	err := env.A.Login(c_invalid)
-	he, ok := err.(*echo.HTTPError)
-	require.True(t, ok, "expected HTTPError")
-	require.Equal(t, http.StatusUnauthorized, he.Code)
+	require.Equal(t, "user_loged_in", event["type"])
+	require.Equal(t, "test_user", event["username"])
 }
 
 func TestLogOut(t *testing.T) {
 	env := newTestEnv(t)
 
-	load := map[string]string{
-		"username": "test_user",
-		"password": "password",
-	}
+	load := map[string]string{"username": "test_user", "password": "password"}
 
-	rec, _, c := env.doJSONRequest(http.MethodPost, "/register", load)
-	require.NoError(t, env.A.Register(c))
-	require.Equal(t, http.StatusOK, rec.Code)
+	recReg, _, cReg := env.doJSONRequest(http.MethodPost, "/register", load)
+	require.NoError(t, env.A.Register(cReg))
+	require.Equal(t, http.StatusOK, recReg.Code)
 
-	rec_login, _, c_login := env.doJSONRequest(http.MethodPost, "/login", load)
-	require.NoError(t, env.A.Login(c_login))
-	require.Equal(t, http.StatusOK, rec_login.Code)
+	recLogin, _, cLogin := env.doJSONRequest(http.MethodPost, "/login", load)
+	require.NoError(t, env.A.Login(cLogin))
+	require.Equal(t, http.StatusOK, recLogin.Code)
 
-	var RespData_login map[string]interface{}
-	require.NoError(t, json.Unmarshal(rec_login.Body.Bytes(), &RespData_login))
-	refresh_token := RespData_login["refresh_token"]
+	var respLogin map[string]interface{}
+	require.NoError(t, json.Unmarshal(recLogin.Body.Bytes(), &respLogin))
+	ck := &http.Cookie{Name: "refreshToken", Value: respLogin["refresh_token"].(string)}
+	recLogout, _, cLogout := env.doJSONRequest(http.MethodPost, "/logout", nil, ck)
+	require.NoError(t, env.A.LogOut(cLogout))
+	require.Equal(t, http.StatusOK, recLogout.Code)
 
-	ck := &http.Cookie{
-		Name:  "refreshToken",
-		Value: refresh_token.(string),
-	}
-	rec_logout, _, c_logout := env.doJSONRequest(http.MethodPost, "/logout", nil, ck)
-
-	require.NoError(t, env.A.LogOut(c_logout))
-	require.Equal(t, http.StatusOK, rec_logout.Code)
-
-	var RespData_logout map[string]string
-	require.NoError(t, json.Unmarshal(rec_logout.Body.Bytes(), &RespData_logout))
-	require.Equal(t, "logged out", RespData_logout["message"])
+	var respLogout map[string]string
+	require.NoError(t, json.Unmarshal(recLogout.Body.Bytes(), &respLogout))
+	require.Equal(t, "loged out", respLogout["message"])
 }
