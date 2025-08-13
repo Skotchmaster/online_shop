@@ -82,7 +82,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	); err != nil {
 		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
-	user.PasswordHash = "you don't have rights to see it"
+	user.PasswordHash = req.Password
 
 	return c.JSON(http.StatusOK, user)
 
@@ -202,8 +202,7 @@ func (h *AuthHandler) LogOut(c echo.Context) error {
 
 	c.SetCookie(CreateCookie("accessToken", "/", "/", expired))
 	c.SetCookie(CreateCookie("refreshToken", "/", "/", expired))
-
 	return c.JSON(http.StatusOK, echo.Map{
-		"message": "logged out",
+		"message": "loged out",
 	})
 }

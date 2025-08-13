@@ -3,11 +3,9 @@ package cart
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
-	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -17,16 +15,10 @@ type Kafka struct {
 	Producer *mykafka.Producer
 }
 
-func (h *Kafka) PublishEvent(c echo.Context, event map[string]interface{}, UserID uint) {
+func (h *CartHandler) publish(c echo.Context, event map[string]any) {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
-
-	if err := h.Producer.PublishEvent(
-		ctx,
-		"cart_events",
-		fmt.Sprint(UserID),
-		event,
-	); err != nil {
+	if err := h.Producer.PublishEvent(ctx, "cart_events", fmt.Sprint(event["userID"]), event); err != nil {
 		c.Logger().Errorf("Kafka publish error: %v", err)
 	}
 }
@@ -69,18 +61,4 @@ func GetID(c echo.Context, jwt_secret []byte) (uint, error) {
 type DeliveryStep struct {
 	Status string
 	After  time.Duration
-}
-
-func (h *CartHandler) SimulateDelivery(steps []DeliveryStep, orderID uint) {
-	go func() {
-		for _, step := range steps {
-			time.Sleep(step.After)
-
-			if err := h.DB.Model(&models.Order{}).Where("id=?", orderID); err != nil {
-				log.Printf("failed to update status of order %d: %v", orderID, err)
-			} else {
-				log.Printf("order %d status set up %s", orderID, step.Status)
-			}
-		}
-	}()
 }

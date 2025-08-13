@@ -26,7 +26,7 @@ func NewProducer(brokers []string, topics []string) (*Producer, error) {
 		p.writers[topic] = kafka.NewWriter(kafka.WriterConfig{
 			Brokers:  brokers,
 			Topic:    topic,
-			Balancer: &kafka.LeastBytes{},
+			Balancer: &kafka.Hash{},
 		})
 	}
 	return p, nil

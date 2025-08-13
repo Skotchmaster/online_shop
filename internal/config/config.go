@@ -53,7 +53,7 @@ func LoadConfig() (*Config, error) {
 func InitDB() (*gorm.DB, error) {
 	configuration, _ := LoadConfig()
 
-	host := "db"
+	host := configuration.DB_HOST
 	port := configuration.DB_PORT
 	user := configuration.DB_USER
 	password := configuration.DB_PASSWORD

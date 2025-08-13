@@ -32,6 +32,14 @@ func errorResponse(c echo.Context, code int, err error) error {
 	})
 }
 
+func (h *ProductHandler) publish(c echo.Context, event map[string]any) {
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+	if err := h.Producer.PublishEvent(ctx, "product_events", fmt.Sprint(event["userID"]), event); err != nil {
+		c.Logger().Errorf("Kafka publish error: %v", err)
+	}
+}
+
 func (h *ProductHandler) GetProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
@@ -76,17 +84,7 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 		"name":      prod.Name,
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
-	defer cancel()
-
-	if err := h.Producer.PublishEvent(
-		ctx,
-		"product_events",
-		fmt.Sprint(prod.ID),
-		event,
-	); err != nil {
-		c.Logger().Errorf("Kafka publish error: %v", err)
-	}
+	h.publish(c, event)
 
 	return c.JSON(http.StatusCreated, prod)
 }
@@ -129,17 +127,7 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 		"name":      prod.Name,
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
-	defer cancel()
-
-	if err := h.Producer.PublishEvent(
-		ctx,
-		"product_events",
-		fmt.Sprint(prod.ID),
-		event,
-	); err != nil {
-		c.Logger().Errorf("Kafka publish error: %v", err)
-	}
+	h.publish(c, event)
 
 	return c.JSON(http.StatusOK, prod)
 }
@@ -159,16 +147,7 @@ func (h *ProductHandler) DeleteProduct(c echo.Context) error {
 		"productID": id,
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
-	defer cancel()
+	h.publish(c, event)
 
-	if err := h.Producer.PublishEvent(
-		ctx,
-		"product_event",
-		fmt.Sprint(id),
-		event,
-	); err != nil {
-		c.Logger().Errorf("kafka publish error: %v", err)
-	}
 	return c.NoContent(http.StatusNoContent)
 }
