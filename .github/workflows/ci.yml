@@ -1,4 +1,4 @@
-name: CI
+name: CI 
 
 on:
   push:
@@ -7,38 +7,24 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  tests:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
+      - name: Build images
+        run: docker compose build --no-cache
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Start deps in background
+        run: docker compose up -d 
 
-      - name: Check formatting
-        run: go fmt ./...
+      - name: Run tester and fail if tests fail
+        run: docker compose up tester --no-build --exit-code-from tester
 
-      - name: Static analysis
-        run: go vet ./...
+      - name: Show tester logs on failure
+        if: failure()
+        run: docker compose logs --no-color tester | tail -n 1000
 
-      - name: Run tests
-        run: go tests ./... -v
-
-      - name: Build binary
-        run: |
-          mkdir -p build
-          go build -o build/online_shop ./cmd/server
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: online_shop-binary
-          path: build/online_shop
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
