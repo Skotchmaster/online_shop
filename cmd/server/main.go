@@ -1,7 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -12,6 +19,7 @@ import (
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	"github.com/Skotchmaster/online_shop/internal/service/token"
+	httpserver "github.com/Skotchmaster/online_shop/internal/transport/http"
 )
 
 func main() {
@@ -25,8 +33,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	jwt_secret := []byte(configuration.JWT_SECRET)
-	refresh := []byte(configuration.REFRESH_SECRET)
+	jwtSecret := []byte(configuration.JWT_SECRET)
+	refreshSecret := []byte(configuration.REFRESH_SECRET)
 
 	brokers := []string{configuration.KAFKA_ADDRESS}
 	topics := []string{"user_events", "cart_events", "product_events"}
@@ -34,42 +42,72 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer prod.Close()
 
-	es, err := es.NewClient(configuration)
+	esClient, err := es.NewClient(configuration)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	productHandler := &handlers.ProductHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
-	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwt_secret, RefreshSecret: refresh, Producer: prod}
-	cartHandler := &cart.CartHandler{DB: db, Producer: prod, JWTSecret: jwt_secret}
-	serviceHandler := &token.TokenService{DB: db, RefreshSecret: refresh, JWTSecret: jwt_secret}
-	searchHandler := &handlers.SearchHandler{ES: es, Index: "product"}
 	e := echo.New()
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+	e.Pre(middleware.RemoveTrailingSlash())
+	e.Use(middleware.Recover(), middleware.RequestID())
 
-	e.POST("/register", authHandler.Register)
-	e.POST("/login", authHandler.Login)
-	e.POST("/logout", authHandler.LogOut)
+	deps := httpserver.Deps{
+		DB: db,
+		AuthHandler: &handlers.AuthHandler{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret, Producer: prod},
+		ProductHandler: &handlers.ProductHandler{DB: db, Producer: prod, JWTSecret: jwtSecret},
+		CartHandler: &cart.CartHandler{DB: db, Producer: prod, JWTSecret: jwtSecret},
+		ServiceHandler: &token.TokenService{DB: db, RefreshSecret: refreshSecret, JWTSecret: jwtSecret},
+		SearchHandler: &handlers.SearchHandler{ES: esClient, Index: "product"},
+	}
 
-	e.GET("/search", searchHandler.Handler)
-	api := e.Group("/api")
-	api.Use(serviceHandler.AutoRefreshMiddleware)
-	api_admin := e.Group("/admin")
-	api_admin.Use(serviceHandler.AutoRefreshMiddlewareAdmin)
+	httpserver.Register(e, &deps)
 
-	api_admin.POST("/product", productHandler.CreateProduct)
-	api_admin.PATCH("/product/:id", productHandler.PatchProduct)
-	api_admin.DELETE("/product/:id", productHandler.DeleteProduct)
+	srv := &http.Server{
+	Addr:         ":8080",
+	Handler:      e,
+	ReadTimeout:  10 * time.Second,
+	WriteTimeout: 15 * time.Second,
+	IdleTimeout:  60 * time.Second,
+	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("http server error: %v", err)
+		}
+	}()
 
-	api.GET("/product/:id", productHandler.GetProduct)
-	api.GET("/cart", cartHandler.GetCart)
-	api.POST("/cart", cartHandler.AddToCart)
-	api.POST("/cart/order", cartHandler.MakeOrder)
-	api.DELETE("/cart/:id", cartHandler.DeleteOneFromCart)
-	api.DELETE("/cart/:id", cartHandler.DeleteAllFromCart)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	e.Logger.Fatal(e.Start(":8080"))
+	go func() {
+		<-quit
+		log.Println("force exit")
+		os.Exit(1)
+	}()
+
+	<-quit
+
+	log.Println("shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("server shutdown error: %v", err)
+	}
+
+	if sqlDB, err := db.DB(); err == nil {
+		if err := sqlDB.Close(); err != nil {
+			log.Printf("db close error: %v", err)
+		}
+	} else {
+		log.Printf("db() error: %v", err)
+	}
+
+	if err := prod.Close(); err != nil {
+		log.Printf("kafka close error: %v", err)
+	}
+
+	log.Println("shutdown complete")
+
 }
