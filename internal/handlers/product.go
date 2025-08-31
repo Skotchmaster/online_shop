@@ -12,6 +12,7 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
+	"github.com/Skotchmaster/online_shop/internal/util"
 )
 
 type Response struct {
@@ -30,6 +31,12 @@ func errorResponse(c echo.Context, code int, err error) error {
 		Status:  "error",
 		Message: err.Error(),
 	})
+}
+
+func parseIntDefault(s string, def int) int {
+	if s == "" { return def }
+	if v, err := strconv.Atoi(s); err == nil { return v }
+	return def
 }
 
 func (h *ProductHandler) publish(c echo.Context, event map[string]any) {
@@ -53,6 +60,35 @@ func (h *ProductHandler) GetProduct(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, product)
+}
+
+func (h *ProductHandler) GetProducts(c echo.Context) error {
+	page := parseIntDefault(c.QueryParam("page"), 1)
+	size := parseIntDefault(c.QueryParam("size"), util.DefaultPageSize)
+
+	offset, limit := util.Calculate(page,size)
+
+	var total int64
+	if err := h.DB.Model(models.Product{}).Count(&total); err != nil{
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	var items []models.Product
+	if err := h.DB.Model(&models.Product{}).Order("id ASC").Offset(offset).Limit(limit).Find(&items); err != nil {
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"data": items,
+		"meta": map[string]any{
+			"page":        page,
+			"size":        limit,
+			"total":       total,
+			"total_pages": (total + int64(limit) - 1) / int64(limit),
+			"has_prev":    page > 1,
+			"has_next":    int64(offset+limit) < total,
+		},
+	})
 }
 
 func (h *ProductHandler) CreateProduct(c echo.Context) error {

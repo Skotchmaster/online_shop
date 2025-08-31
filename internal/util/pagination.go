@@ -1,12 +1,17 @@
 package util
 
-func Calculate(page, size int) (from, limit int) {
+const (
+	DefaultPageSize = 10
+	MaxPageSize     = 100
+)
+
+func Calculate(page, size int) (offset, limit int) {
 	if page < 1 {
 		page = 1
 	}
-	if size <= 0 || size > 100 {
-		size = 10
+	if size <= 0 || size > MaxPageSize {
+		size = DefaultPageSize
 	}
-	from = (page - 1) * size
-	return from, size
+	offset = (page - 1) * size
+	return offset, size
 }
