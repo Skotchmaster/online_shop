@@ -5,38 +5,31 @@ import (
 	"strconv"
 
 	"github.com/Skotchmaster/online_shop/internal/service/search"
-	"github.com/Skotchmaster/online_shop/internal/util"
-	"github.com/elastic/go-elasticsearch/v9"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 type SearchHandler struct {
-	ES    *elasticsearch.Client
-	Index string
+	DB *gorm.DB
 }
 
-func NewSearchHandler(es *elasticsearch.Client, index string) *SearchHandler {
-	return &SearchHandler{
-		ES:    es,
-		Index: index,
-	}
-}
-
-func (h *SearchHandler) Handler(c echo.Context) error {
+func (h *SearchHandler) Search(c echo.Context) error {
 	q := c.QueryParam("q")
-	if q == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "query error")
-	}
-
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	size, _ := strconv.Atoi(c.QueryParam("size"))
-	from, size := util.Calculate(page, size)
+	if size <= 0 { size = 20 }
+	if page < 1 { page = 1 }
+	offset := (page - 1) * size
 
-	ctx := c.Request().Context()
-
-	total, products, err := search.Search(ctx, h.ES, h.Index, q, from, size)
+	res, err := search.Search(h.DB, q, offset, size)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "search failed")
 	}
-	return c.JSON(http.StatusOK, echo.Map{"total": total, "products": products})
+	return c.JSON(http.StatusOK, echo.Map{
+		"total":    res.Total,
+		"products": res.Items,
+		"page":     page,
+		"size":     size,
+		"query":    q,
+	})
 }

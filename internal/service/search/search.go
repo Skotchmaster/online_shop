@@ -1,62 +1,94 @@
 package search
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"net/http"
+	"strings"
+	"time"
 
 	"github.com/Skotchmaster/online_shop/internal/models"
-	"github.com/elastic/go-elasticsearch/v9"
-	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-func Search(ctx context.Context, es *elasticsearch.Client, index, query string, from, size int) (int64, []models.Product, error) {
-	body := map[string]interface{}{
-		"query": map[string]interface{}{
-			"multi_match": map[string]interface{}{
-				"query":     query,
-				"fields":    []string{"name^2", "description"},
-				"fuzziness": "AUTO",
-			},
-		},
-		"from": from,
-		"size": size,
+type Results struct {
+	Total int64
+	Items []models.Product
+}
+
+func sanitizeQuery(q string) string {
+	return strings.TrimSpace(q)
+}
+
+func ftsQuerySQL() string {
+	return `
+(
+  websearch_to_tsquery('russian', unaccent(?)) ||
+  websearch_to_tsquery('english', unaccent(?))
+)
+`
+}
+
+func Search(db *gorm.DB, rawQ string, offset, limit int) (Results, error) {
+	q := sanitizeQuery(rawQ)
+	if q == "" {
+		return Results{Total: 0, Items: []models.Product{}}, nil
+	}
+	if limit <= 0 { limit = 20 }
+	if limit > 100 { limit = 100 }
+	if offset < 0 { offset = 0 }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	tx := db.WithContext(ctx)
+
+	ftsWhere := "search_vector @@ " + ftsQuerySQL()
+
+	var totalFTS int64
+	if err := tx.Model(&models.Product{}).
+		Where(ftsWhere, q, q).
+		Count(&totalFTS).Error; err != nil {
+		return Results{}, err
 	}
 
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(body); err != nil {
-		return 0, nil, echo.NewHTTPError(http.StatusBadRequest, "search error: %w", err)
+	if totalFTS > 0 {
+		items := make([]models.Product, 0, limit)
+
+		orderExpr := clause.Expr{
+			SQL:  "ts_rank_cd(search_vector, "+ftsQuerySQL()+") DESC",
+			Vars: []interface{}{q, q},
+		}
+
+		if err := tx.
+			Where(ftsWhere, q, q).
+			Order(orderExpr).
+			Limit(limit).
+			Offset(offset).
+			Find(&items).Error; err != nil {
+			return Results{}, err
+		}
+
+		return Results{Total: totalFTS, Items: items}, nil
 	}
 
-	res, err := es.Search(
-		es.Search.WithContext(ctx),
-		es.Search.WithIndex(index),
-		es.Search.WithBody(&buf),
-	)
-
-	if err != nil {
-		return 0, nil, echo.NewHTTPError(http.StatusBadRequest, "search error: %w", err)
+	var totalTrgm int64
+	if err := tx.Model(&models.Product{}).
+		Where("name % ? OR description % ?", q, q).
+		Count(&totalTrgm).Error; err != nil {
+		return Results{}, err
 	}
 
-	defer res.Body.Close()
-	if res.IsError() {
-		return 0, nil, echo.NewHTTPError(http.StatusBadRequest, "search error: %w", err)
+	items := make([]models.Product, 0, limit)
+	if err := tx.
+		Where("name % ? OR description % ?", q, q).
+		Order(clause.Expr{
+			SQL:  "GREATEST(similarity(name, ?), similarity(description, ?)) DESC",
+			Vars: []interface{}{q, q},
+		}).
+		Limit(limit).
+		Offset(offset).
+		Find(&items).Error; err != nil {
+		return Results{}, err
 	}
 
-	var r struct {
-		Hits struct {
-			Total struct{ Value int64 }             `json:"total"`
-			Hits  []struct{ Source models.Product } `json:"hits"`
-		} `json:"hits"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		return 0, nil, err
-	}
-
-	prods := make([]models.Product, len(r.Hits.Hits))
-	for i, hit := range r.Hits.Hits {
-		prods[i] = hit.Source
-	}
-	return r.Hits.Total.Value, prods, nil
+	return Results{Total: totalTrgm, Items: items}, nil
 }

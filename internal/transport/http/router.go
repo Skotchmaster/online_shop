@@ -8,13 +8,13 @@ import (
 	"gorm.io/gorm"
 )
 
-type Deps struct{
-	DB *gorm.DB
+type Deps struct {
+	DB             *gorm.DB
 	ProductHandler *handlers.ProductHandler
-	AuthHandler *handlers.AuthHandler
-	CartHandler *cart.CartHandler
+	AuthHandler    *handlers.AuthHandler
+	CartHandler    *cart.CartHandler
 	ServiceHandler *token.TokenService
-	SearchHandler *handlers.SearchHandler
+	SearchHandler  *handlers.SearchHandler
 }
 
 func Register(e *echo.Echo, d *Deps) {
@@ -26,7 +26,7 @@ func Register(e *echo.Echo, d *Deps) {
 	v1.POST("/register", d.AuthHandler.Register)
 	v1.POST("/login", d.AuthHandler.Login)
 	v1.POST("/logout", d.AuthHandler.LogOut)
-	v1.GET("/search", d.SearchHandler.Handler)
+	v1.GET("/search", d.SearchHandler.Search)
 
 	admin := v1.Group("/admin", d.ServiceHandler.AutoRefreshMiddlewareAdmin)
 
@@ -45,7 +45,6 @@ func Register(e *echo.Echo, d *Deps) {
 	cart.POST("", d.CartHandler.AddToCart)
 	cart.POST("/order", d.CartHandler.MakeOrder)
 	cart.DELETE("/:id", d.CartHandler.DeleteOneFromCart)
-	cart.DELETE("/:id/all", d.CartHandler.DeleteAllFromCart)	
-
+	cart.DELETE("/:id/all", d.CartHandler.DeleteAllFromCart)
 
 }

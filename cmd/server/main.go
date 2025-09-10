@@ -14,7 +14,6 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/Skotchmaster/online_shop/internal/config"
-	"github.com/Skotchmaster/online_shop/internal/es"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
@@ -23,76 +22,97 @@ import (
 )
 
 func main() {
-	db, err := config.InitDB()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Ошибка инициализации БД: %v", err)
+		log.Fatalf("load config error: %v", err)
 	}
 
-	configuration, err := config.LoadConfig()
+	initCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	db, err := config.InitDB(initCtx)
+	cancel()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("db init error: %v", err)
 	}
 
-	jwtSecret := []byte(configuration.JWT_SECRET)
-	refreshSecret := []byte(configuration.REFRESH_SECRET)
-
-	brokers := []string{configuration.KAFKA_ADDRESS}
-	topics := []string{"user_events", "cart_events", "product_events"}
-	prod, err := mykafka.NewProducer(brokers, topics)
+	brokers := []string{cfg.KAFKA_ADDRESS}
+	topics := []string{"user_events", "product_events", "cart_events"}
+	producer, err := mykafka.NewProducer(brokers, topics)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("kafka init error: %v", err)
 	}
 
-	esClient, err := es.NewClient(configuration)
-	if err != nil {
-		log.Fatal(err)
+	jwtSecretStr := cfg.JWT_SECRET
+	if jwtSecretStr == "" {
+		if alt := os.Getenv("ACCESS_SECRET"); alt != "" {
+			log.Printf("warning: JWT_SECRET is empty, falling back to ACCESS_SECRET (rename in .env please)")
+			jwtSecretStr = alt
+		}
 	}
+	if jwtSecretStr == "" {
+		log.Fatal("JWT secret is empty: set JWT_SECRET (or ACCESS_SECRET) in environment")
+	}
+	if cfg.REFRESH_SECRET == "" {
+		log.Fatal("REFRESH secret is empty: set REFRESH_SECRET in environment")
+	}
+	jwtSecret := []byte(jwtSecretStr)
+	refreshSecret := []byte(cfg.REFRESH_SECRET)
 
 	e := echo.New()
-	e.Pre(middleware.RemoveTrailingSlash())
-	e.Use(middleware.Recover(), middleware.RequestID())
+	e.HideBanner = true
+	e.HidePort = true
+	e.Use(middleware.Recover(), middleware.RequestID(), middleware.Logger(), middleware.CORS())
 
-	deps := httpserver.Deps{
-		DB: db,
-		AuthHandler: &handlers.AuthHandler{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret, Producer: prod},
-		ProductHandler: &handlers.ProductHandler{DB: db, Producer: prod, JWTSecret: jwtSecret},
-		CartHandler: &cart.CartHandler{DB: db, Producer: prod, JWTSecret: jwtSecret},
-		ServiceHandler: &token.TokenService{DB: db, RefreshSecret: refreshSecret, JWTSecret: jwtSecret},
-		SearchHandler: &handlers.SearchHandler{ES: esClient, Index: "product"},
-	}
+	e.GET("/healthz", func(c echo.Context) error { return c.String(http.StatusOK, "ok") })
 
-	httpserver.Register(e, &deps)
+	productHandler := &handlers.ProductHandler{DB: db, Producer: producer, JWTSecret: jwtSecret}
+	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret, Producer: producer}
+	cartHandler := &cart.CartHandler{DB: db, Producer: producer, JWTSecret: jwtSecret}
+	searchHandler := &handlers.SearchHandler{DB: db}
+	tokenSvc := &token.TokenService{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret}
 
+	httpserver.Register(e, &httpserver.Deps{
+		DB:             db,
+		ProductHandler: productHandler,
+		AuthHandler:    authHandler,
+		CartHandler:    cartHandler,
+		ServiceHandler: tokenSvc,
+		SearchHandler:  searchHandler,
+	})
+
+	port := getenv("PORT", "8080")
 	srv := &http.Server{
-	Addr:         ":8080",
-	Handler:      e,
-	ReadTimeout:  10 * time.Second,
-	WriteTimeout: 15 * time.Second,
-	IdleTimeout:  60 * time.Second,
+		Addr:         ":" + port,
+		Handler:      e,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	srvErr := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("http server error: %v", err)
+		log.Printf("server is listening on :%s", port)
+		if err := e.StartServer(srv); err != nil {
+			srvErr <- err
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-quit
-		log.Println("force exit")
-		os.Exit(1)
-	}()
-
-	<-quit
+	select {
+	case s := <-sigCh:
+		log.Printf("got signal: %v", s)
+	case err := <-srvErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("http server error: %v", err)
+		}
+	}
 
 	log.Println("shutting down...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := e.Shutdown(shCtx); err != nil {
 		log.Printf("server shutdown error: %v", err)
 	}
 
@@ -104,10 +124,16 @@ func main() {
 		log.Printf("db() error: %v", err)
 	}
 
-	if err := prod.Close(); err != nil {
+	if err := producer.Close(); err != nil {
 		log.Printf("kafka close error: %v", err)
 	}
 
 	log.Println("shutdown complete")
+}
 
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

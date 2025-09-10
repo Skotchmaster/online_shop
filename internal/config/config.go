@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
+	"time"
 
-	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"gorm.io/driver/postgres"
@@ -18,10 +20,6 @@ type Config struct {
 	DB_USER        string
 	DB_PASSWORD    string
 	DB_NAME        string
-	ES_PORT        string
-	ES_USER        string
-	ES_PASSWORD    string
-	ES_URL         string
 	JWT_SECRET     string
 	REFRESH_SECRET string
 	KAFKA_ADDRESS  string
@@ -38,10 +36,6 @@ func LoadConfig() (*Config, error) {
 		DB_USER:        os.Getenv("DB_USER"),
 		DB_PASSWORD:    os.Getenv("DB_PASSWORD"),
 		DB_NAME:        os.Getenv("DB_NAME"),
-		ES_PORT:        os.Getenv("ES_PORT"),
-		ES_USER:        os.Getenv("ES_USER"),
-		ES_PASSWORD:    os.Getenv("ES_PASSWORD"),
-		ES_URL:         os.Getenv("ES_URL"),
 		JWT_SECRET:     os.Getenv("JWT_SECRET"),
 		REFRESH_SECRET: os.Getenv("REFRESH_SECRET"),
 		KAFKA_ADDRESS:  os.Getenv("KAFKA_ADDRESS"),
@@ -50,25 +44,42 @@ func LoadConfig() (*Config, error) {
 	return config, nil
 }
 
-func InitDB() (*gorm.DB, error) {
-	configuration, _ := LoadConfig()
-
-	host := configuration.DB_HOST
-	port := configuration.DB_PORT
-	user := configuration.DB_USER
-	password := configuration.DB_PASSWORD
-	dbname := configuration.DB_NAME
-
-	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		user, password, host, port, dbname,
+func configurePool(sqlDB *sql.DB) {
+	const (
+		maxOpenConns    = 20
+		maxIdleConns    = 10
+		connMaxLifetime = 30 * time.Minute
+		connMaxIdleTime = 5 * time.Minute
 	)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
+}
+
+func InitDB(ctx context.Context) (*gorm.DB, error) {
+	dsn := os.Getenv("DATABASE_URL")
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		PrepareStmt: true,
+		NowFunc:     func() time.Time { return time.Now().UTC() },
+	})
 	if err != nil {
-		return nil, fmt.Errorf("не удалось подключиться к БД: %w", err)
+		return nil, fmt.Errorf("подключение к БД: %w", err)
 	}
-	if err := db.AutoMigrate(&models.Product{}, &models.User{}, &models.RefreshToken{}, &models.CartItem{}, &models.Order{}, &models.OrderItem{}); err != nil {
-		return nil, fmt.Errorf("не удалось выполнить миграцию: %w", err)
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("получение sql.DB: %w", err)
 	}
+	configurePool(sqlDB)
+
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("ping БД: %w", err)
+	}
+
 	return db, nil
 }
