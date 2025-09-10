@@ -1,4 +1,4 @@
-name: CI 
+name: CI
 
 on:
   push:
@@ -9,28 +9,28 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    enviroment: ci
+    environment: ci
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Write .env from environment secret
-        shell: bash
         run: |
           printf '%s' "${{ secrets.ENV_CI }}" | tr -d '\r' > .env
-        
+
       - name: Build images
-        run: docker compose build --no-cache
+        run: docker compose --env-file .env build --no-cache
 
       - name: Start deps in background
-        run: docker compose up -d 
+        run: docker compose --env-file .env up -d
 
       - name: Run tester and fail if tests fail
-        run: docker compose up tester --no-build --exit-code-from tester
+        run: docker compose --env-file .env up tester --no-build --exit-code-from tester
 
       - name: Show tester logs on failure
         if: failure()
-        run: docker compose logs --no-color tester | tail -n 1000
+        run: docker compose --env-file .env logs --no-color tester | tail -n 1000
 
       - name: Cleanup
         if: always()
-        run: docker compose down -v
+        run: docker compose --env-file .env down -v
