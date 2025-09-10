@@ -9,11 +9,14 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    enviroment: ci
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure .env exists
-        run: touch .env
+      - name: Write .env from environment secret
+        shell: bash
+        run: |
+          printf '%s' "${{ secrets.ENV_CI }}" | tr -d '\r' > .env
         
       - name: Build images
         run: docker compose build --no-cache
