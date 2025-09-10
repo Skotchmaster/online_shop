@@ -9,12 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func createProducts(env *testEnv) {
+	env.DB.Create(&models.Product{Name:"p1", Description:"d1", Price:10, Count:100})
+	env.DB.Create(&models.Product{Name:"p2", Description:"d1", Price:10, Count:100})
+	env.DB.Create(&models.Product{Name:"p3", Description:"d1", Price:10, Count:100})
+}
+
 func TestGetCart(t *testing.T) {
 	env := newTestEnv(t)
 
 	accessToken, refreshToken := login(t, env)
 	ck_r := &http.Cookie{Name: "refreshToken", Value: refreshToken, Path: "/"}
 	ck_a := &http.Cookie{Name: "accessToken", Value: accessToken, Path: "/"}
+
+	createProducts(env)
 
 	env.DB.Create(&models.CartItem{UserID: 1, ProductID: 2, Quantity: 3})
 
@@ -50,6 +58,7 @@ func TestAddToCart(t *testing.T) {
 		"quantity":   2,
 		"product_id": 3,
 	}
+	createProducts(env)
 
 	rec, _, c := env.doJSONRequest(http.MethodPost, "/api/cart", load, ck_r, ck_a)
 	require.NoError(t, env.C.AddToCart(c))
@@ -79,7 +88,7 @@ func TestDeleteOneFromCart(t *testing.T) {
 	accessToken, refreshToken := login(t, env)
 	ck_r := &http.Cookie{Name: "refreshToken", Value: refreshToken, Path: "/"}
 	ck_a := &http.Cookie{Name: "accessToken", Value: accessToken, Path: "/"}
-
+	createProducts(env)	
 	test_item := models.CartItem{
 		UserID:    1,
 		ProductID: 1,
@@ -132,6 +141,7 @@ func TestDeleteAllFromCart(t *testing.T) {
 		Quantity:  10,
 	}
 	env.DB.Create(&test_item)
+	createProducts(env)
 
 	var Resp []models.CartItem
 	event := consumeNextEvent(t, "cart_events", func() {
@@ -157,6 +167,8 @@ func TestMakeOrder(t *testing.T) {
 	accessToken, refreshToken := login(t, env)
 	ck_r := &http.Cookie{Name: "refreshToken", Value: refreshToken, Path: "/"}
 	ck_a := &http.Cookie{Name: "accessToken", Value: accessToken, Path: "/"}
+
+	createProducts(env)
 
 	env.DB.Create(&models.CartItem{UserID: 1, ProductID: 1, Quantity: 10})
 	env.DB.Create(&models.Product{

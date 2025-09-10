@@ -41,10 +41,6 @@ func InitTestDB(t *testing.T) *gorm.DB {
 	)
 	db, _ := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
-	if err := db.AutoMigrate(&models.CartItem{}, &models.Product{}, &models.RefreshToken{}, &models.User{}, &models.Order{}, &models.OrderItem{}); err != nil {
-		t.Fatalf("failed to migrate tables: %v", err)
-	}
-
 	return db
 }
 
