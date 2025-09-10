@@ -16,9 +16,6 @@ services:
       - zk_log:/var/lib/zookeeper/log
     networks: [backend]
 
-
-
-
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     env_file: [.env]
@@ -49,70 +46,86 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-root}
-      POSTGRES_DB: ${POSTGRES_DB:-online_shop}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-online_shop}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
       timeout: 3s
       retries: 30
+      start_period: 5s
     volumes: [pg_data:/var/lib/postgresql/data]
     networks: [backend]
 
   dbtest:
     image: postgres:16
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: root
-      POSTGRES_DB: test_db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME_TEST}
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres -d test_db"]
+      test: ["CMD-SHELL","pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
       timeout: 3s
       retries: 30
+      start_period: 5s
     networks:
       backend:
         aliases:
           - db_test
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.2
-    env_file: [.env]
-    environment: ["discovery.type=single-node","xpack.security.enabled=false"]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
-      interval: 2s
-      timeout: 3s
-      retries: 60
-    volumes: [es_data:/usr/share/elasticsearch/data]
+  migrate_main:
+    image: migrate/migrate:4
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./db/migrations:/migrations:ro
+    command: [
+      "-path", "/migrations",
+      "-database", "${DATABASE_URL}",
+      "up"
+    ]
+    restart: "no"
     networks: [backend]
+
+  migrate_test:
+    image: migrate/migrate:4
+    depends_on:
+      dbtest:
+        condition: service_healthy
+    volumes:
+      - ./db/migrations:/migrations:ro
+    command: [
+      "-path", "/migrations",
+      "-database", "${DATABASE_URL_TEST}",
+      "up"
+    ]
+    restart: "no"   
+    networks: [backend] 
 
   app:
     build: .
     depends_on:
+      migrate_main: {condition: service_completed_successfully}
       db: { condition: service_healthy }
       kafka: { condition: service_healthy }
-      elasticsearch: { condition: service_healthy }
     env_file: [.env]
     environment:
       KAFKA_ADDRESS: kafka:9092
-      ES_URL: http://elasticsearch:9200
     ports: ["8080:8080"]
     networks: [backend]
 
   tester:
     build: { context: ., target: tester }
     depends_on:
+      migrate_test: {condition: service_completed_successfully}
       dbtest: { condition: service_healthy }
       kafka:   { condition: service_healthy }
-      elasticsearch: { condition: service_healthy }
     env_file: [.env]
     environment:
-      DB_HOST: dbtest
-      DB_NAME: test_db
+      DATABASE_URL: ${DATABASE_URL_TEST}
       KAFKA_ADDRESS: kafka:9092
-      ES_URL: http://elasticsearch:9200
     command: ["go","test","-v","-count=1","./tests/..."]
     networks: [backend]
 
