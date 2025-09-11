@@ -19,6 +19,7 @@ import (
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/logging"
 	"github.com/Skotchmaster/online_shop/internal/middleware/auth"
+	loggingmw "github.com/Skotchmaster/online_shop/internal/middleware/logging"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	httpserver "github.com/Skotchmaster/online_shop/internal/transport/http"
 )
@@ -62,7 +63,7 @@ func main() {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
-	e.Use(middleware.Recover(), middleware.RequestID(), middleware.Logger(), middleware.CORS())
+	e.Use(middleware.Recover(), middleware.RequestID(), loggingmw.RequestLogger(logger), middleware.CORS())
 
 	e.GET("/healthz", func(c echo.Context) error { return c.String(http.StatusOK, "ok") })
 
