@@ -103,7 +103,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username")
 	}
 
-	if !hash.ChekPassword(user.PasswordHash, req.Password) {
+	if !hash.CheckPassword(user.PasswordHash, req.Password) {
 		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username")
 	}
 
