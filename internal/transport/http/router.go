@@ -3,7 +3,7 @@ package httpserver
 import (
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
-	"github.com/Skotchmaster/online_shop/internal/service/token"
+	"github.com/Skotchmaster/online_shop/internal/middleware/auth"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 )
@@ -13,7 +13,7 @@ type Deps struct {
 	ProductHandler *handlers.ProductHandler
 	AuthHandler    *handlers.AuthHandler
 	CartHandler    *cart.CartHandler
-	ServiceHandler *token.TokenService
+	ServiceHandler *auth.TokenService
 	SearchHandler  *handlers.SearchHandler
 }
 

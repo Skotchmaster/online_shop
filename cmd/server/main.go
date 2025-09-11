@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,8 +17,9 @@ import (
 	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
+	"github.com/Skotchmaster/online_shop/internal/logging"
+	"github.com/Skotchmaster/online_shop/internal/middleware/auth"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
-	"github.com/Skotchmaster/online_shop/internal/service/token"
 	httpserver "github.com/Skotchmaster/online_shop/internal/transport/http"
 )
 
@@ -46,19 +48,16 @@ func main() {
 
 	jwtSecretStr := cfg.JWT_SECRET
 	if jwtSecretStr == "" {
-		if alt := os.Getenv("ACCESS_SECRET"); alt != "" {
-			log.Printf("warning: JWT_SECRET is empty, falling back to ACCESS_SECRET (rename in .env please)")
-			jwtSecretStr = alt
-		}
-	}
-	if jwtSecretStr == "" {
-		log.Fatal("JWT secret is empty: set JWT_SECRET (or ACCESS_SECRET) in environment")
+		log.Printf("warning: JWT_SECRET is empty")
 	}
 	if cfg.REFRESH_SECRET == "" {
-		log.Fatal("REFRESH secret is empty: set REFRESH_SECRET in environment")
+		log.Fatal("REFRESH secret is empty")
 	}
 	jwtSecret := []byte(jwtSecretStr)
 	refreshSecret := []byte(cfg.REFRESH_SECRET)
+
+	logger := logging.New(getenv("LOG_LEVEL", "info"))
+	slog.SetDefault(logger)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -71,7 +70,7 @@ func main() {
 	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret, Producer: producer}
 	cartHandler := &cart.CartHandler{DB: db, Producer: producer, JWTSecret: jwtSecret}
 	searchHandler := &handlers.SearchHandler{DB: db}
-	tokenSvc := &token.TokenService{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret}
+	tokenSvc := &auth.TokenService{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret}
 
 	httpserver.Register(e, &httpserver.Deps{
 		DB:             db,
