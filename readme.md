@@ -3,16 +3,16 @@
 **Цель проекта**
 Продемонстрировать настройку и взаимодействие компонентов полного бэкенд‑стека:
 
-* Аутентификация и авторизация с помощью JWT (access + refresh токены, версия ключей через `kid`)
+* Аутентификация и авторизация с помощью JWT
 * Асинхронная обработка бизнес‑событий через Apache Kafka
 * Хранение и миграция данных в PostgreSQL с использованием GORM
 * Реализация REST API на основе Echo
 * Управление созданием и изменением товаров только для админа
 * Управление состоянием корзины и оформление заказов
 * Поддержка ролей (`user`, `admin`) для разных операций
-* **Полнотекстовый поиск по товарам (PostgreSQL FTS: `tsvector`, `unaccent`, `pg_trgm`)**
-
----
+* Интеграционные тесты через `testing.t`
+* Полнотекстовый поиск по товарам (PostgreSQL FTS: `tsvector`, `unaccent`, `pg_trgm`)
+* Настройка Docker-compose и Dockerfile
 
 ---
 
@@ -34,7 +34,7 @@
 
 ## Описание проекта
 
-Проект представляет собой простую демонстрацию бэкенд-сервиса для интернет-магазина. Включает в себя:
+Проект представляет собой демонстрацию бэкенд-сервиса для интернет-магазина. Включает в себя:
 
 * Регистрацию и аутентификацию пользователей
 * Выдачу и проверку JWT (access и refresh токены)
@@ -51,9 +51,10 @@
 * Веб-фреймворк: [Echo](https://echo.labstack.com/)
 * ORM: [GORM](https://gorm.io/) + PostgreSQL
 * Поиск: **PostgreSQL FTS** (`tsvector` + `unaccent` + `pg_trgm`)
-* Аутентификация: JWT (HS256) с ключевым хранилищем для роутинга версий ключей (`kid`)
+* Аутентификация: JWT (HS256)
 * Сообщения: Apache Kafka (Confluent Platform)
 * Контейнеризация: Docker + Docker Compose
+* Тестирование: t.testing
 * Логирование: встроенный логгер Echo
 * Конфигурация: переменные окружения
 
@@ -61,20 +62,28 @@
 
 ```
 ├── cmd/server                          # Точка входа приложения
+├──db
+|   ├── migrations                      # Миграции для бд
 ├── internal
 │   ├── handlers 
-│   │   ├── auth.go
-│   │   ├── product.go
+│   │   ├── auth.go                     # Хэндлеры для авторизации
+│   │   ├── product.go                  # Хэндлеры для товаров
+|   |   ├── search.go                   # Хэндлеры для поисковой строки
 │   │   └── cart
-│   │         ├── cart_handlers.go      # 
+│   │         ├── cart_handlers.go      # Хэндлеры для корзины
 │   │         └── cart.helpers.go       # Вспомогательные функции для хэндлеров для корзины
 │   ├── config                          # Файл с получением данныех из .env файла
 │   ├── models                          # Модели GORM (User, Product, CartItem, RefreshToken)
 │   ├── mykafka                         # Обёртка для Kafka-производителя
 │   ├── hash                            # Утилиты для хеширования паролей
-│   └── service
-│       ├── token_helpers               # Функции для работы токен сервисов
-│       └── token_service               # Основные функции для работы токенов
+│   ├── service
+|   |   ├──token
+│   |   |   ├── token_helpers           # Функции для работы токен сервисов
+│   |   |   └── token_service           # Основные функции для работы токенов
+|   |   └──search
+|   |       └──search.go                # Функции для работы search хэндлеров
+|   ├──util                             # Пагинация для поисковой строки
+|   └──transport                        # Регистрация end-point-ов
 ├── Dockerfile                          # Сборка образа приложения
 ├── docker-compose.yml                  # Оркестрация контейнеров (app, db, kafka, zookeeper)
 ├── go.mod
@@ -97,19 +106,20 @@
 Переменные окружения, необходимые для работы:
 
 ```env
-# PostgreSQL
 DB_HOST=db
 DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=root
 DB_NAME=online_shop
+DB_NAME_TEST=test_db
 
-# Kafka
+DATABASE_URL=postgres://postgres:root@db:5432/online_shop?sslmode=disable
+DATABASE_URL_TEST=postgres://postgres:root@dbtest:5432/test_db?sslmode=disable
+
 KAFKA_ADDRESS=kafka:9092
 
-# JWT секреты
-ACCESS_SECRET_=yourAccessSecret
-REFRESH_SECRET_=yourRefreshSecret
+JWT_SECRET=yourAccessSecret
+REFRESH_SECRET=yourRefreshSecret
 ```
 
 ## API Endpoints
@@ -119,6 +129,7 @@ REFRESH_SECRET_=yourRefreshSecret
 * **POST /register** — регистрация пользователя
 * **POST /login** — логин и выдача `access_token` + `refresh_token`
 * **POST /logout** - выход из аккаунта
+* **GET /health/live** - проверка работоспособности приложения
 
 ### Защищённые (JWT Middleware)
 
@@ -162,9 +173,9 @@ REFRESH_SECRET_=yourRefreshSecret
 
 ## Работа с базой данных
 
-* Инициализация через `handlers.InitDB()`
+* Инициализация через `config.InitDB()`
 * Модели GORM в `internal/models`
-* Автоматическая миграция таблиц при старте
+* Миграция таблиц расположена в db/migrations
 
 ### FTS в PostgreSQL
 
@@ -189,18 +200,17 @@ REFRESH_SECRET_=yourRefreshSecret
 
 #### Детали контейнеров
 
-* **server**
+* **appr**
   Роль: HTTP‑API приложения.
   Порты: внутр. `8080` → наружу `localhost:8080`.
   Окружение: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `KAFKA_ADDRESS`, `ACCESS_SECRET_`, `REFRESH_SECRET_`.
   Зависимости: `db`, `kafka`. Стартует после доступности БД и брокера.
   Логи: `docker compose logs -f server`.
 
-* **db (PostgreSQL)**
-  Роль: основная БД.
+* **db / dbtest (PostgreSQL)**
+  Роль: основная БД. / БД для тестов  
   Данные: том `pgdata` (сохраняет данные между перезапусками).
   Расширения: `unaccent`, `pg_trgm` включаются миграциями (нужны для FTS).
-  Доступ из сети Compose по `db:5432`. Снаружи порт обычно не публикуется (если не указано в compose).
 
 * **zookeeper**
   Роль: сервис координации для Kafka.
@@ -212,11 +222,11 @@ REFRESH_SECRET_=yourRefreshSecret
   Сетевые настройки: доступен другим контейнерам по `kafka:9092`.
   Используется для публикации событий `user_events`, `product_events`, `cart_events`.
 
-* **migrate\_main / migrate\_test** *(если описаны в compose)*
+* **migrate\_main / migrate\_test**
   Роль: одноразовые контейнеры, запускают SQL‑миграции из каталога миграций для основной и тестовой БД.
   Поведение: старт → применяют миграции → завершаются.
 
-* **tester** *(если описан в compose)*
+* **tester**
   Роль: одноразовый контейнер для запуска тестов (`go test`).
   Поведение: старт → тесты → завершение c кодом статуса.
 
@@ -232,17 +242,12 @@ REFRESH_SECRET_=yourRefreshSecret
 go test ./tests -v
 ```
 
-или для всех тестов проекта:
-
-```bash
-go test ./... -v
-```
-
 ### Структура папки `tests/`
 
 * `auth_handlers_test.go` — покрывает регистрацию, логин и логаут (AuthHandler).
 * `cart_handlers_test.go` — тестирует работу с корзиной: добавление, удаление позиций, создание заказа.
 * `prosuct_handlers_test.go` — тестирует работу с продуктами: создаение, обновление и удаление товара
+* `configTests.go` - вспомогательные функции для тестов
 
 ---
 
