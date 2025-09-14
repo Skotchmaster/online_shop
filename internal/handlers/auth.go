@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Skotchmaster/online_shop/internal/hash"
+	"github.com/Skotchmaster/online_shop/internal/logging"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 )
@@ -38,6 +39,7 @@ func CreateCookie(name string, value string, path string, exp_time time.Time) *h
 }
 
 func (h *AuthHandler) Register(c echo.Context) error {
+	ctx := c.Request().Context()
 	var req struct {
 		Username string
 		Password string
@@ -55,13 +57,22 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		Username:     req.Username,
 		PasswordHash: string(hash),
 		Role:         "user"}
+	l := logging.FromContext(ctx).With("handler", "auth.register")
 	var user_chek models.User
 	result := h.DB.Where("username=?", req.Username).First(&user_chek)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 	} else {
-		return echo.NewHTTPError(http.StatusUnauthorized, "user already exists")
+		l.Warn("register_failed",
+			"status", 409,
+			"reason", "user_exists",
+		)
+		return echo.NewHTTPError(http.StatusConflict, "user already exists")
 	}
 	if err := h.DB.Create(&user).Error; err != nil {
+		l.Warn("register_failed",
+			"status", 401,
+			"reason", "db_error",
+		)
 		return echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
 
@@ -84,6 +95,9 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	}
 	user.PasswordHash = req.Password
 
+	l.Info("register_success",
+		"status", 200,
+	)
 	return c.JSON(http.StatusOK, user)
 
 }
@@ -97,14 +111,23 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
-
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "auth.register")
 	var user models.User
 	if err := h.DB.Where("username = ?", req.Username).First(&user).Error; err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username")
+		l.Warn("login_failed",
+			"status", 401,
+			"reason", "invalid username or password",
+		)
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username or password")
 	}
 
 	if !hash.CheckPassword(user.PasswordHash, req.Password) {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username")
+		l.Warn("login_failed",
+			"status", 401,
+			"reason", "invalid username or password",
+		)
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username or password")
 	}
 
 	role := "user"
@@ -122,6 +145,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	tokenAcces := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accesToken, err := tokenAcces.SignedString(h.JWTSecret)
 	if err != nil {
+		l.Warn("login_failed",
+			"status", 401,
+			"reason", err,
+		)
 		return echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
 
@@ -135,7 +162,11 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	tokenRef := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshToken, err := tokenRef.SignedString(h.RefreshSecret)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "could not create refresh token")
+		l.Warn("login_failed",
+			"status", 500,
+			"reason", err,
+		)
+		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 
 	refreshModel := models.RefreshToken{
@@ -147,6 +178,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	if err := h.DB.Create(&refreshModel).Error; err != nil {
+		l.Warn("login_failed",
+			"status", 401,
+			"reason", err,
+		)
 		return echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
 
@@ -154,8 +189,8 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	c.SetCookie(accessCookie)
 
 	refreshCookie := CreateCookie("refreshToken", refreshToken, "/", refreshExp)
+	l.Info("login_successful")
 	c.SetCookie(refreshCookie)
-
 	event := map[string]interface{}{
 		"type":     "user_loged_in",
 		"UserID":   user.ID,
@@ -183,8 +218,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 }
 
 func (h *AuthHandler) LogOut(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "Auth.LogOut")
+
 	refreshCookie, err := c.Cookie("refreshToken")
 	if err != nil {
+		l.Warn("logout_failed", "status", 400, "reason", "missing_refresh_cookie", "error", err)
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
@@ -193,6 +232,7 @@ func (h *AuthHandler) LogOut(c echo.Context) error {
 		Update("revoked", true)
 
 	if result.Error != nil {
+		l.Error("logout_failed", "status", 500, "reason", "db_error", "error", result.Error)
 		return c.JSON(http.StatusInternalServerError, echo.Map{
 			"error": result.Error.Error(),
 		})
@@ -202,6 +242,7 @@ func (h *AuthHandler) LogOut(c echo.Context) error {
 
 	c.SetCookie(CreateCookie("accessToken", "/", "/", expired))
 	c.SetCookie(CreateCookie("refreshToken", "/", "/", expired))
+	l.Info("successful_logout")
 	return c.JSON(http.StatusOK, echo.Map{
 		"message": "loged out",
 	})

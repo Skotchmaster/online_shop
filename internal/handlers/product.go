@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 
+	"github.com/Skotchmaster/online_shop/internal/logging"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/Skotchmaster/online_shop/internal/mykafka"
 	"github.com/Skotchmaster/online_shop/internal/util"
@@ -48,21 +49,29 @@ func (h *ProductHandler) publish(c echo.Context, event map[string]any) {
 }
 
 func (h *ProductHandler) GetProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "product.get_product")
+	
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
-		return errorResponse(c, http.StatusBadRequest, err)
+		l.Error("get_product_failed", "status", 500, "reason", "id is not intenger")
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	product := models.Product{}
 	if err := h.DB.Where("ID=?", id).First(&product).Error; err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		l.Error("get_product_failed", "status", 500, "reason", "db_error", "error", err)
+		return c.JSON(http.StatusInternalServerError, err)
 	}
 
 	return c.JSON(http.StatusOK, product)
 }
 
 func (h *ProductHandler) GetProducts(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "product.get_products")
+
 	page := parseIntDefault(c.QueryParam("page"), 1)
 	size := parseIntDefault(c.QueryParam("size"), util.DefaultPageSize)
 
@@ -70,14 +79,17 @@ func (h *ProductHandler) GetProducts(c echo.Context) error {
 
 	var total int64
 	if err := h.DB.Model(models.Product{}).Count(&total); err != nil{
+		l.Error("get_products_error", "status", 500, "reason", "db_error", "error", err)
 		return c.JSON(http.StatusInternalServerError, err)
 	}
 
 	var items []models.Product
 	if err := h.DB.Model(&models.Product{}).Order("id ASC").Offset(offset).Limit(limit).Find(&items); err != nil {
+		l.Error("get_products_error", "status", 500, "reason", "db_error", "error", err)
 		return c.JSON(http.StatusInternalServerError, err)
 	}
 
+	l.Info("get_products_success")
 	return c.JSON(http.StatusOK, map[string]any{
 		"data": items,
 		"meta": map[string]any{
@@ -92,6 +104,9 @@ func (h *ProductHandler) GetProducts(c echo.Context) error {
 }
 
 func (h *ProductHandler) CreateProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "create_product")
+
 	var req struct {
 		Name        string  `gorm:"not null"                  json:"name"`
 		Description string  `gorm:"not null"                  json:"description"`
@@ -100,7 +115,8 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		l.Error("product_create_error", "status", 500, "reason", "db_error", "error", err)
+		return c.JSON(http.StatusInternalServerError, err)
 	}
 
 	prod := models.Product{
@@ -111,6 +127,7 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	}
 
 	if err := h.DB.Create(&prod).Error; err != nil {
+		l.Error("product_create_error", "status", 500, "reason", "db_error", "error", err)
 		return c.JSON(http.StatusBadRequest, err)
 	}
 
@@ -121,14 +138,18 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	}
 
 	h.publish(c, event)
-
+	l.Info("create_product_success")
 	return c.JSON(http.StatusCreated, prod)
 }
 
 func (h *ProductHandler) PatchProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "patch_product")
+
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
+		l.Error("product_patch_error", "status", 400, "reason", "id not a string", "error", err)
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 
@@ -140,11 +161,13 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		l.Error("product_patch_error", "status", 500, "reason", "db_error", "error", err)
+		return c.JSON(http.StatusInternalServerError, err)
 	}
 
 	var prod models.Product
 	if err := h.DB.First(&prod, id).Error; err != nil {
+		l.Warn("product_patch_error", "status", 404, "reason", "db_error", "error", err)
 		return c.JSON(http.StatusNotFound, err)
 	}
 
@@ -154,7 +177,8 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	prod.Count = req.Count
 
 	if err := h.DB.Save(&prod).Error; err != nil {
-		return c.JSON(http.StatusBadRequest, err)
+		l.Error("product_patch_error", "status", 500, "reason", "db_error", "error", err)
+		return c.JSON(http.StatusInternalServerError, err)
 	}
 
 	event := map[string]interface{}{
@@ -164,17 +188,22 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	}
 
 	h.publish(c, event)
-
+	l.Info("patch_prosuct_success")
 	return c.JSON(http.StatusOK, prod)
 }
 
 func (h *ProductHandler) DeleteProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "delete_product")
+
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
+		l.Warn("product_delete_error", "status", 400, "reason", "id not an integer", "error", err)
 		return errorResponse(c, http.StatusBadRequest, err)
 	}
 	if err := h.DB.Delete(&models.Product{}, id).Error; err != nil {
+		l.Error("product_delete_error", "status", 500, "reason", "db_error", "error", err)
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
@@ -184,6 +213,6 @@ func (h *ProductHandler) DeleteProduct(c echo.Context) error {
 	}
 
 	h.publish(c, event)
-
+	l.Info("delete_product_success")
 	return c.NoContent(http.StatusNoContent)
 }
