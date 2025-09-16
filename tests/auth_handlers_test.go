@@ -50,7 +50,7 @@ func TestRegister(t *testing.T) {
 	err := env.A.Register(c_invalid)
 	he, ok := err.(*echo.HTTPError)
 	require.True(t, ok, "expected HTTPError")
-	require.Equal(t, http.StatusUnauthorized, he.Code)
+	require.Equal(t, http.StatusConflict, he.Code)
 }
 
 func TestLogin(t *testing.T) {

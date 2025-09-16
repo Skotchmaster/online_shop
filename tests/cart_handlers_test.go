@@ -135,13 +135,13 @@ func TestDeleteAllFromCart(t *testing.T) {
 	ck_r := &http.Cookie{Name: "refreshToken", Value: refreshToken, Path: "/"}
 	ck_a := &http.Cookie{Name: "accessToken", Value: accessToken, Path: "/"}
 
+	createProducts(env)
 	test_item := models.CartItem{
 		UserID:    1,
 		ProductID: 1,
 		Quantity:  10,
 	}
 	env.DB.Create(&test_item)
-	createProducts(env)
 
 	var Resp []models.CartItem
 	event := consumeNextEvent(t, "cart_events", func() {
