@@ -27,13 +27,6 @@ type ProductHandler struct {
 	JWTSecret []byte
 }
 
-func errorResponse(c echo.Context, code int, err error) error {
-	return c.JSON(code, Response{
-		Status:  "error",
-		Message: err.Error(),
-	})
-}
-
 func parseIntDefault(s string, def int) int {
 	if s == "" { return def }
 	if v, err := strconv.Atoi(s); err == nil { return v }
@@ -55,14 +48,14 @@ func (h *ProductHandler) GetProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
-		l.Error("get_product_failed", "status", 500, "reason", "id is not intenger")
-		return errorResponse(c, http.StatusInternalServerError, err)
+		l.Error("get_product_failed", "status", 400, "reason", "id is not intenger", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "id is not integer")
 	}
 
 	product := models.Product{}
 	if err := h.DB.Where("ID=?", id).First(&product).Error; err != nil {
-		l.Error("get_product_failed", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusInternalServerError, err)
+		l.Error("get_product_failed", "status", 500, "reason", "cannot add product to db", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot add product to db")
 	}
 
 	return c.JSON(http.StatusOK, product)
@@ -79,14 +72,14 @@ func (h *ProductHandler) GetProducts(c echo.Context) error {
 
 	var total int64
 	if err := h.DB.Model(models.Product{}).Count(&total); err != nil{
-		l.Error("get_products_error", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusInternalServerError, err)
+		l.Error("get_products_error", "status", 500, "reason", "cannot count total products", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot count total products")
 	}
 
 	var items []models.Product
 	if err := h.DB.Model(&models.Product{}).Order("id ASC").Offset(offset).Limit(limit).Find(&items); err != nil {
-		l.Error("get_products_error", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusInternalServerError, err)
+		l.Error("get_products_error", "status", 500, "reason", "cannot get products with offset", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot get products with offset")
 	}
 
 	l.Info("get_products_success")
@@ -115,8 +108,8 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		l.Error("product_create_error", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusInternalServerError, err)
+		l.Error("product_create_error", "status", 400, "reason", "invalid body", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "invalid body")
 	}
 
 	prod := models.Product{
@@ -127,8 +120,8 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	}
 
 	if err := h.DB.Create(&prod).Error; err != nil {
-		l.Error("product_create_error", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusBadRequest, err)
+		l.Error("product_create_error", "status", 500, "reason", "cannot add product to db", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "cannot add product to db")
 	}
 
 	event := map[string]interface{}{
@@ -150,7 +143,7 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
 		l.Error("product_patch_error", "status", 400, "reason", "id not a string", "error", err)
-		return errorResponse(c, http.StatusBadRequest, err)
+		return echo.NewHTTPError(http.StatusBadRequest, "id not a string")
 	}
 
 	var req struct {
@@ -161,14 +154,14 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		l.Error("product_patch_error", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusInternalServerError, err)
+		l.Error("product_patch_error", "status", 400, "reason", "invalid body", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "invalid body")
 	}
 
 	var prod models.Product
 	if err := h.DB.First(&prod, id).Error; err != nil {
-		l.Warn("product_patch_error", "status", 404, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusNotFound, err)
+		l.Warn("product_patch_error", "status", 404, "reason", "cannot find product in db", "error", err)
+		return echo.NewHTTPError(http.StatusNotFound, "cannot find product in db")
 	}
 
 	prod.Name = req.Name
@@ -177,8 +170,8 @@ func (h *ProductHandler) PatchProduct(c echo.Context) error {
 	prod.Count = req.Count
 
 	if err := h.DB.Save(&prod).Error; err != nil {
-		l.Error("product_patch_error", "status", 500, "reason", "db_error", "error", err)
-		return c.JSON(http.StatusInternalServerError, err)
+		l.Error("product_patch_error", "status", 500, "reason", "cannot add product to db", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot add product to db")
 	}
 
 	event := map[string]interface{}{
@@ -200,11 +193,11 @@ func (h *ProductHandler) DeleteProduct(c echo.Context) error {
 	id, err := strconv.Atoi(idParam)
 	if err != nil {
 		l.Warn("product_delete_error", "status", 400, "reason", "id not an integer", "error", err)
-		return errorResponse(c, http.StatusBadRequest, err)
+		return echo.NewHTTPError(http.StatusBadRequest, "id not an integer")
 	}
 	if err := h.DB.Delete(&models.Product{}, id).Error; err != nil {
-		l.Error("product_delete_error", "status", 500, "reason", "db_error", "error", err)
-		return errorResponse(c, http.StatusInternalServerError, err)
+		l.Error("product_delete_error", "status", 500, "reason", "cannot delete product from db", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot delete product from db")
 	}
 
 	event := map[string]interface{}{

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Skotchmaster/online_shop/internal/logging"
 	"github.com/Skotchmaster/online_shop/internal/service/search"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -14,6 +15,9 @@ type SearchHandler struct {
 }
 
 func (h *SearchHandler) Search(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "search")
+		
 	q := c.QueryParam("q")
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	size, _ := strconv.Atoi(c.QueryParam("size"))
@@ -23,6 +27,7 @@ func (h *SearchHandler) Search(c echo.Context) error {
 
 	res, err := search.Search(h.DB, q, offset, size)
 	if err != nil {
+		l.Warn("search_hendler_error", "status", 500, "reason", "search failed", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "search failed")
 	}
 	return c.JSON(http.StatusOK, echo.Map{
