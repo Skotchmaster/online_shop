@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/Skotchmaster/online_shop/internal/models"
@@ -22,21 +21,26 @@ func (t *TokenService) CheckCookie(c echo.Context) (string, string, string, erro
 	asCookie, err := c.Cookie("accessToken")
 	if err == nil {
 		token, err := jwt.Parse(asCookie.Value, func(j *jwt.Token) (interface{}, error) {
+			if j.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+				return nil, fmt.Errorf("unexpected alg: %s", j.Method.Alg())
+			}
 			return t.JWTSecret, nil
 		})
-		if err == nil && token.Valid {
-			claims := token.Claims.(jwt.MapClaims)
+		if err == nil && token != nil && token.Valid {
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				return "", "", "", fmt.Errorf("cannot parse claims")
+			}	
 			role, ok := claims["role"].(string)
 			if !ok {
-				return "", "", "", echo.NewHTTPError(http.StatusForbidden, "not enough rights")
+				return "", "", "", fmt.Errorf("cannot parse role")
 			}
-			setUserContext(c, token.Claims.(jwt.MapClaims))
+			setUserContext(c, claims)
 			return asCookie.Value, "", role, nil
 		}
-		if errors.Is(err, jwt.ErrTokenExpired) {
-		} else {
-			return "", "", "", echo.NewHTTPError(http.StatusUnauthorized, err)
-		}
+		if err != nil && !errors.Is(err, jwt.ErrTokenExpired) {
+            return "", "", "", fmt.Errorf("invalid access token: %w", err)
+        }
 	}
 
 	rfCookie, err := c.Cookie("refreshToken")
@@ -50,10 +54,12 @@ func (t *TokenService) CheckCookie(c echo.Context) (string, string, string, erro
 
 	role, ok := claims["role"].(string)
 	if !ok {
-		return "", "", "", echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+		return "", "", "", fmt.Errorf("cannot parse role")
 	}
 
+	setUserContext(c, claims)
 	return newAccess, newRefresh, role, nil
+
 }
 
 func (t *TokenService) RotateToken(rawToken string) (string, string, jwt.MapClaims, error) {
@@ -62,21 +68,34 @@ func (t *TokenService) RotateToken(rawToken string) (string, string, jwt.MapClai
 		return "", "", nil, err
 	}
 
-	userID := uint(claims["sub"].(float64))
-	role := claims["role"].(string)
+	sub, ok := claims["sub"].(float64)
+	if !ok { return "", "", nil, fmt.Errorf("invalid sub claim") }
+	userID := uint(sub)
 
-	newAccess, err := SingAccessToken(userID, role, t.JWTSecret)
-	if err != nil {
-		return "", "", nil, err
-	}
+	role, ok := claims["role"].(string)
+	if !ok { return "", "", nil, fmt.Errorf("invalid role claim") }
 
-	newRefresh, err := SignRefreshToken(userID, role, t.RefreshSecret)
-	if err == nil {
-		return "", "", nil, err
-	}
+	var newAccess, newRefresh string
 
-	if err := SaveRefreshToken(t.DB, newRefresh, userID); err != nil {
-		return "", "", nil, err
+	if txErr := t.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.RefreshToken{}).
+			Where("token = ?", rawToken).
+			Update("revoked", true).Error; err != nil {
+			return fmt.Errorf("revoke old refresh: %w", err)
+		}
+
+		newAccess, err = SignAccessToken(userID, role, t.JWTSecret)
+		if err != nil { return err }
+
+		newRefresh, err = SignRefreshToken(userID, role, t.RefreshSecret)
+		if err != nil { return err }
+
+		if err := SaveRefreshToken(tx, newRefresh, userID); err != nil {
+			return err
+		}
+		return nil
+	}); txErr != nil {
+		return "", "", nil, txErr
 	}
 
 	return newAccess, newRefresh, claims, nil
@@ -89,12 +108,12 @@ func setUserContext(c echo.Context, claims jwt.MapClaims) {
 }
 
 
-func ValidateRefresh(rawToken string, Refreshsecret []byte, db *gorm.DB) (jwt.MapClaims, error) {
+func ValidateRefresh(rawToken string, refreshsecret []byte, db *gorm.DB) (jwt.MapClaims, error) {
 	t, err := jwt.Parse(rawToken, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signature method: %v", t.Header["alg"])
-		}
-		return Refreshsecret, nil
+		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+            return nil, fmt.Errorf("unexpected alg: %s", t.Method.Alg())
+        }
+		return refreshsecret, nil
 	})
 
 	if err != nil || !t.Valid {
@@ -113,7 +132,7 @@ func ValidateRefresh(rawToken string, Refreshsecret []byte, db *gorm.DB) (jwt.Ma
 	var stored models.RefreshToken
 	if err := db.Where("token=?", rawToken).First(&stored).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("refresh token dont found")
+			return nil, errors.New("refresh token not found")
 		}
 		return nil, fmt.Errorf("db error: %w", err)
 	}
@@ -122,13 +141,13 @@ func ValidateRefresh(rawToken string, Refreshsecret []byte, db *gorm.DB) (jwt.Ma
 		return nil, fmt.Errorf("refresh token revoked")
 	}
 	if time.Now().Unix() > stored.ExpiresAt {
-		return nil, fmt.Errorf("refresh token expierd")
+		return nil, fmt.Errorf("refresh token expired")
 	}
 
 	return claims, nil
 }
 
-func SingAccessToken(userID uint, role string, accessSecret []byte) (string, error) {
+func SignAccessToken(userID uint, role string, accessSecret []byte) (string, error) {
 	exp := time.Now().Add(15 * time.Minute)
 	claims := jwt.MapClaims{
 		"sub":  userID,
