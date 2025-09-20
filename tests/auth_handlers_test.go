@@ -60,27 +60,48 @@ func TestLogin(t *testing.T) {
     require.NotEmpty(t, refresh)
 }
 
+
 func TestLogOut(t *testing.T) {
-	env := newTestEnv(t)
+    env := newTestEnv(t)
 
-	load := map[string]string{"username": "test_user", "password": "password"}
+    access, refresh := login(t, env)
+    recTok, _, _ := env.doJSONRequest(http.MethodGet, "/api/v1/products", nil)
+    require.Equal(t, http.StatusOK, recTok.Code)
 
-	recReg, _, cReg := env.doJSONRequest(http.MethodPost, "/register", load)
-	require.NoError(t, env.A.Register(cReg))
-	require.Equal(t, http.StatusOK, recReg.Code)
+    var csrf string
+    for _, ck := range recTok.Result().Cookies() {
+        if ck.Name == "csrf_token" {
+            csrf = ck.Value
+            break
+        }
+    }
+    require.NotEmpty(t, csrf, "csrf_token must be set by CSRF middleware on GET")
 
-	recLogin, _, cLogin := env.doJSONRequest(http.MethodPost, "/login", load)
-	require.NoError(t, env.A.Login(cLogin))
-	require.Equal(t, http.StatusOK, recLogin.Code)
+    rec, _, c := env.doJSONRequest(
+        http.MethodPost,
+        "/logout",
+        nil,
+        &http.Cookie{Name: "accessToken",  Value: access,  Path: "/"},
+        &http.Cookie{Name: "refreshToken", Value: refresh, Path: "/"},
+        &http.Cookie{Name: "csrf_token",   Value: csrf,    Path: "/"},
+    )
+    c.Request().Header.Set("X-CSRF-Token", csrf)
+    c.Request().Header.Set("Origin",  "http://localhost")
+    c.Request().Header.Set("Referer", "http://localhost/")
 
-	var respLogin map[string]interface{}
-	require.NoError(t, json.Unmarshal(recLogin.Body.Bytes(), &respLogin))
-	ck := &http.Cookie{Name: "refreshToken", Value: respLogin["refresh_token"].(string)}
-	recLogout, _, cLogout := env.doJSONRequest(http.MethodPost, "/logout", nil, ck)
-	require.NoError(t, env.A.LogOut(cLogout))
-	require.Equal(t, http.StatusOK, recLogout.Code)
+    require.NoError(t, env.A.LogOut(c))
+    require.Equal(t, http.StatusOK, rec.Code)
 
-	var respLogout map[string]string
-	require.NoError(t, json.Unmarshal(recLogout.Body.Bytes(), &respLogout))
-	require.Equal(t, "loged out", respLogout["message"])
+    var accessDeleted, refreshDeleted bool
+    now := time.Now().Add(2 * time.Second)
+    for _, ck := range rec.Result().Cookies() {
+        switch ck.Name {
+        case "accessToken":
+            accessDeleted = ck.Value == "" && (ck.MaxAge <= 0 || ck.Expires.Before(now))
+        case "refreshToken":
+            refreshDeleted = ck.Value == "" && (ck.MaxAge <= 0 || ck.Expires.Before(now))
+        }
+    }
+    require.True(t, accessDeleted,  "accessToken must be deleted")
+    require.True(t, refreshDeleted, "refreshToken must be deleted")
 }

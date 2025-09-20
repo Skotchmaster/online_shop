@@ -224,8 +224,8 @@ func login(t *testing.T, env *testEnv) (string, string) {
 	t.Helper()
 
 	creds := map[string]string{
-		"username": "admin",
-		"password": "admin",
+		"username": "test_user",
+		"password": "password",
 	}
 
 	rec, _, c := env.doJSONRequest(http.MethodPost, "/login", creds)
