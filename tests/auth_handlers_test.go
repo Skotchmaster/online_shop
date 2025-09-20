@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"time"
 
 	"testing"
 
-	"github.com/Skotchmaster/online_shop/internal/hash"
 	"github.com/Skotchmaster/online_shop/internal/models"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
@@ -54,33 +52,12 @@ func TestRegister(t *testing.T) {
 }
 
 func TestLogin(t *testing.T) {
-	env := newTestEnv(t)
+    env := newTestEnv(t)
 
-	hash, _ := hash.HashPassword("password")
-	user := models.User{
-		Username:     "test_user",
-		PasswordHash: hash,
-		Role:         "user",
-	}
-	env.DB.Create(&user)
+    access, refresh := login(t, env)
 
-	load := map[string]string{"username": "test_user", "password": "password"}
-
-	var rec *httptest.ResponseRecorder
-	event := consumeNextEvent(t, "user_events", func() {
-		var c echo.Context
-		rec, _, c = env.doJSONRequest(http.MethodPost, "/login", load)
-		require.NoError(t, env.A.Login(c))
-		require.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	var RespData map[string]interface{}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &RespData))
-	require.NotEmpty(t, RespData["access_token"])
-	require.NotEmpty(t, RespData["refresh_token"])
-
-	require.Equal(t, "user_loged_in", event["type"])
-	require.Equal(t, "test_user", event["username"])
+    require.NotEmpty(t, access)
+    require.NotEmpty(t, refresh)
 }
 
 func TestLogOut(t *testing.T) {
