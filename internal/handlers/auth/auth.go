@@ -157,8 +157,8 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	c.SetCookie(accessCookie)
 
 	refreshCookie := CreateCookie("refreshToken", refreshToken, "/", refreshExp)
-	l.Info("login_successful")
 	c.SetCookie(refreshCookie)
+	l.Info("login_successful")
 	event := map[string]interface{}{
 		"type":     "user_loged_in",
 		"UserID":   user.ID,

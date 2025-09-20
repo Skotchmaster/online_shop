@@ -38,7 +38,7 @@ func Register(e *echo.Echo, d *Deps) {
     SameSite:          http.SameSiteLaxMode,
     MaxAge:            24 * time.Hour,
     EnforceSameOrigin: true,
-    SkipPaths: nil,
+    SkipPaths: []string{},
 }
 	v1.Use(csrfmw.Middleware(csrfCfg))
 
