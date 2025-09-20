@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -220,54 +221,78 @@ func (env *testEnv) doJSONRequest(method, path string, body interface{}, cookies
 }
 
 func login(t *testing.T, env *testEnv) (string, string) {
+	t.Helper()
 
-	loadmap := map[string]string{
-		"username": "username",
-		"password": "password",
+	creds := map[string]string{
+		"username": "admin",
+		"password": "admin",
 	}
-	rec_register, _, c_register := env.doJSONRequest(http.MethodPost, "/register", loadmap)
-	require.NoError(t, env.A.Register(c_register))
-	require.Equal(t, http.StatusOK, rec_register.Code)
 
-	rec_login, _, c_login := env.doJSONRequest(http.MethodPost, "/login", loadmap)
-	require.NoError(t, env.A.Login(c_login))
-	require.Equal(t, http.StatusOK, rec_login.Code)
+	rec, _, c := env.doJSONRequest(http.MethodPost, "/login", creds)
+	require.NoError(t, env.A.Login(c))
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
+	var accessToken, refreshToken string
+	for _, ck := range rec.Result().Cookies() {
+		switch ck.Name {
+		case "accessToken":
+			accessToken = ck.Value
+		case "refreshToken":
+			refreshToken = ck.Value
+		}
 	}
-	require.NoError(t, json.Unmarshal(rec_login.Body.Bytes(), &resp))
-	require.NotEmpty(t, resp.AccessToken)
+	require.NotEmpty(t, accessToken, "accessToken cookie must be set")
+	require.NotEmpty(t, refreshToken, "refreshToken cookie must be set")
 
-	return resp.AccessToken, resp.RefreshToken
+	return accessToken, refreshToken
 }
 
 func login_admin(t *testing.T, env *testEnv) (string, string) {
-	hash, _ := hash.HashPassword("test_password")
-	loadmap := models.User{
+	t.Helper()
+
+	pwdHash, err := hash.HashPassword("test_password")
+	require.NoError(t, err)
+
+	u := models.User{
 		Username:     "test_user",
-		PasswordHash: hash,
+		PasswordHash: pwdHash,
 		Role:         "admin",
 	}
 
-	env.DB.Create(&loadmap)
+	var existing models.User
+	if err := env.DB.Where("username = ?", u.Username).First(&existing).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			require.NoError(t, env.DB.Create(&u).Error)
+		} else {
+			require.NoError(t, err)
+		}
+	} else {
+		existing.PasswordHash = u.PasswordHash
+		existing.Role = u.Role
+		require.NoError(t, env.DB.Save(&existing).Error)
+	}
 
-	new_loadmad := map[string]string{
-		"username": "test_user",
+	creds := map[string]string{
+		"username": u.Username,
 		"password": "test_password",
 	}
 
-	rec_login, _, c_login := env.doJSONRequest(http.MethodPost, "/login", new_loadmad)
-	require.NoError(t, env.A.Login(c_login))
-	require.Equal(t, http.StatusOK, rec_login.Code)
+	rec, _, c := env.doJSONRequest(http.MethodPost, "/login", creds)
+	require.NoError(t, env.A.Login(c))
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
+	var accessToken, refreshToken string
+	for _, ck := range rec.Result().Cookies() {
+		switch ck.Name {
+		case "accessToken":
+			accessToken = ck.Value
+		case "refreshToken":
+			refreshToken = ck.Value
+		}
 	}
-	require.NoError(t, json.Unmarshal(rec_login.Body.Bytes(), &resp))
-	require.NotEmpty(t, resp.AccessToken)
+	require.NotEmpty(t, accessToken, "accessToken cookie must be set")
+	require.NotEmpty(t, refreshToken, "refreshToken cookie must be set")
 
-	return resp.AccessToken, resp.RefreshToken
+	return accessToken, refreshToken
 }
+
