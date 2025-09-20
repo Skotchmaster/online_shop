@@ -20,6 +20,7 @@ type RefreshToken struct {
 	Role      string `gorm:"not null"            json:"role"`
 	Token     string `gorm:"unique;not null"     json:"token"`
 	UserID    uint   `gorm:"index;not null"      json:"user_id"`
+	JTI       string `gorm:"uniqueIndex"         json:"jti"`
 	ExpiresAt int64  `gorm:"not null"            json:"expires_at"`
 	Revoked   bool   `gorm:"default:false"       json:"revoked"`
 }

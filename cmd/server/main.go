@@ -16,7 +16,8 @@ import (
 
 	"github.com/Skotchmaster/online_shop/internal/config"
 	"github.com/Skotchmaster/online_shop/internal/handlers"
-	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
+	carthdl "github.com/Skotchmaster/online_shop/internal/handlers/cart"
+	authhdl "github.com/Skotchmaster/online_shop/internal/handlers/auth"
 	"github.com/Skotchmaster/online_shop/internal/logging"
 	"github.com/Skotchmaster/online_shop/internal/middleware/auth"
 	loggingmw "github.com/Skotchmaster/online_shop/internal/middleware/logging"
@@ -68,8 +69,8 @@ func main() {
 	e.GET("/healthz", func(c echo.Context) error { return c.String(http.StatusOK, "ok") })
 
 	productHandler := &handlers.ProductHandler{DB: db, Producer: producer, JWTSecret: jwtSecret}
-	authHandler := &handlers.AuthHandler{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret, Producer: producer}
-	cartHandler := &cart.CartHandler{DB: db, Producer: producer, JWTSecret: jwtSecret}
+	authHandler := &authhdl.AuthHandler{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret, Producer: producer}
+	cartHandler := &carthdl.CartHandler{DB: db, Producer: producer, JWTSecret: jwtSecret}
 	searchHandler := &handlers.SearchHandler{DB: db}
 	tokenSvc := &auth.TokenService{DB: db, JWTSecret: jwtSecret, RefreshSecret: refreshSecret}
 
