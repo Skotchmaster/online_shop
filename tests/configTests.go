@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Skotchmaster/online_shop/internal/handlers"
+	authhdl "github.com/Skotchmaster/online_shop/internal/handlers/auth"
 	"github.com/Skotchmaster/online_shop/internal/handlers/cart"
 	"github.com/Skotchmaster/online_shop/internal/hash"
 	"github.com/Skotchmaster/online_shop/internal/models"
@@ -27,7 +28,7 @@ import (
 type testEnv struct {
 	T                        *testing.T
 	E                        *echo.Echo
-	A                        *handlers.AuthHandler
+	A                        *authhdl.AuthHandler
 	C                        *cart.CartHandler
 	P                        *handlers.ProductHandler
 	DB                       *gorm.DB
@@ -114,7 +115,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 
 	env.ClearDB()
-	env.A = &handlers.AuthHandler{
+	env.A = &authhdl.AuthHandler{
 		DB:            db,
 		JWTSecret:     jwt,
 		RefreshSecret: refresh,
