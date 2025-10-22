@@ -188,17 +188,19 @@ func (h *AuthHandler) LogOut(c echo.Context) error {
 	l := logging.FromContext(ctx).With("handler", "auth_logout")
 
 	refreshCookie, err := c.Cookie("refreshToken")
-	if err != nil {
-		l.Warn("logout_failed", "status", 401, "reason", "missing_refresh_cookie", "error", err)
-	}
+	if err == nil {
 
-	result := h.DB.Model(&models.RefreshToken{}).
-		Where("token = ?", sha256Hex(refreshCookie.Value)).
-		Update("revoked", true)
+		result := h.DB.Model(&models.RefreshToken{}).
+			Where("token = ?", sha256Hex(refreshCookie.Value)).
+			Update("revoked", true)
 
-	if result.Error != nil {
-		l.Error("logout_failed", "status", 500, "reason", "cannot revoke refreshToken", "error", result.Error)
-	}
+		if result.Error != nil {
+			c.SetCookie(DeleteCookie("refreshToken", "/"))
+			c.SetCookie(DeleteCookie("accessToken", "/"))
+			l.Error("logout_failed", "status", 500, "reason", "cannot revoke refreshToken", "error", result.Error)
+			return echo.NewHTTPError(http.StatusInternalServerError, 500)
+		}
+	} 
 
 	c.SetCookie(DeleteCookie("refreshToken", "/"))
 	c.SetCookie(DeleteCookie("accessToken", "/"))
