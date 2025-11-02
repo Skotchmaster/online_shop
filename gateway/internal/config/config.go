@@ -12,7 +12,7 @@ type Config struct {
 	CartURL    string
 	OrderURL   string
 	SearchURL  string
-	JWT        string
+	JWTSecret  []byte
 }
 
 func getenv(k, def string) string {
@@ -37,7 +37,7 @@ func Load() *Config {
 		CartURL:    must(os.Getenv("CART_URL"), "CART_URL"),
 		OrderURL:   must(os.Getenv("ORDER_URL"), "ORDER_URL"),
 		SearchURL:  getenv("SEARCH_URL", ""),
-		JWT:        must(os.Getenv("JWT_HS256_SECRET"), "JWT_HS256_SECRET"),
+		JWTSecret:  []byte(must(os.Getenv("JWT_HS256_SECRET"), "JWT_HS256_SECRET")),
 	}
 	return cfg
 }

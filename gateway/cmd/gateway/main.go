@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/Skotchmaster/online_shop/gateway/internal/config"
-	"github.com/labstack/echo"
+	"github.com/Skotchmaster/online_shop/gateway/internal/httpserver"
+	"github.com/labstack/echo/v4"
 )
 
 func main() {
@@ -26,8 +27,7 @@ func main() {
 		CatalogURL: cfg.CatalogURL,
 		CartURL:    cfg.CartURL,
 		OrderURL:   cfg.OrderURL,
-		SearchURL:  cfg.SearchURL,
-		JWT:        cfg.JWT,
+		JWTSecret:  cfg.JWTSecret,
 	}); err != nil {
 		log.Fatal(err)
 	}
