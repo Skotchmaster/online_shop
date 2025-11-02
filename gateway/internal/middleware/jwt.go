@@ -28,14 +28,14 @@ func Middleware(secret []byte) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusUnauthorized, "missing Authorization header")
 			}
 			parts := strings.SplitN(auth, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Barer") {
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 				return echo.NewHTTPError(http.StatusUnauthorized, "invalid Authorization header")
 			}
 			tokenStr := parts[1]
 
 			claims := &Claims{}
 			tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-				if t.Method.Alg() != jwt.SigningMethodES256.Alg() {
+				if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 					return nil, errors.New("unexpected sign method")
 				}
 				return secret, nil

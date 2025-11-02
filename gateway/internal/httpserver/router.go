@@ -17,8 +17,8 @@ type Deps struct {
 }
 
 func Register(e *echo.Echo, d *Deps) error {
-	e.GET("/health/live", func(c echo.Context) error { return c.NoContent(200) })
-	e.GET("/health/ready", func(c echo.Context) error { return c.NoContent(200) })
+	e.GET("/health/live", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+	e.GET("/health/ready", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 
 	for _, m := range middleware.Common() {
 		e.Use(m)
@@ -39,7 +39,7 @@ func Register(e *echo.Echo, d *Deps) error {
 		return err
 	}
 
-	cartProxy, err := newProxy(d.CartURL, "api/v1/cart")
+	cartProxy, err := newProxy(d.CartURL, "/api/v1/cart")
 	if err != nil {
 		return err
 	}
@@ -53,11 +53,10 @@ func Register(e *echo.Echo, d *Deps) error {
 	api.Match([]string{http.MethodPost, http.MethodPut, http.MethodDelete}, "/catalog/*", catalogProxy)
 
 	api.Any("/cart/*", cartProxy)
-	api.Any("/catalog/*", catalogProxy)
 	api.Any("/order/*", orderProxy)
 	
 	admin := api.Group("/admin")
-	admin.Use(middleware.RequireRole([]string{"role"}))
+	admin.Use(middleware.RequireRole([]string{"admin"}))
 
 	adminCatalogProxy, err := newProxy(d.CatalogURL, "/api/v1/admin/catalog")
 	if err != nil {
