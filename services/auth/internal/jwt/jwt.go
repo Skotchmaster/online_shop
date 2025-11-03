@@ -1,4 +1,4 @@
-package auth
+package jwt
 
 import (
 	"crypto/sha256"
@@ -36,9 +36,9 @@ func DeleteCookie(name, path string) *http.Cookie {
   }
 }
 
-func sha256Hex(s string) string {
+func Sha256Hex(s string) string {
   sum := sha256.Sum256([]byte(s))
   return hex.EncodeToString(sum[:])
 }
 
-func newJTI() string { return uuid.NewString() }
+func NewJTI() string { return uuid.NewString() }

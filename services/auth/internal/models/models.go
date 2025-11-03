@@ -1,18 +1,21 @@
 package models
 
+import (
+	"github.com/google/uuid"
+)
+
 type User struct {
-	ID           uint   `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username     string `gorm:"unique;not null"          json:"username"`
-	PasswordHash string `gorm:"not null"                 json:"-"`
-	Role         string `gorm:"not null;"                json:"role"`
+	ID           uuid.UUID `json:"id" gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	Username     string    `json:"username" gorm:"type:text;not null;uniqueIndex"`
+	PasswordHash string    `json:"-" gorm:"type:text;not null"`
+	Role         string    `json:"role" gorm:"type:text;not null"`
 }
 
 type RefreshToken struct {
-	ID        uint   `gorm:"primaryKey"            json:"id"`
-	Role      string `gorm:"not null"              json:"role"`
-	Token     string `gorm:"unique;not null"       json:"token"`
-	UserID    uint   `gorm:"index;not null"        json:"user_id"`
-	JTI       string `gorm:"not null, uniqueIndex" json:"jti"`
-	ExpiresAt int64  `gorm:"not null"              json:"expires_at"`
-	Revoked   bool   `gorm:"default:false"         json:"revoked"`
+	ID        uuid.UUID `json:"id" gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	UserID    uuid.UUID `json:"user_id" gorm:"type:uuid;not null;index"`
+	Token     string    `json:"token_hash" gorm:"type:text;not null;index:idx_refresh_token_hash"`
+	JTI       string    `json:"jti" gorm:"type:text;not null;uniqueIndex"`
+	ExpiresAt int64     `json:"expires_at" gorm:"type:bigint;not null;index:idx_refresh_expires_at"`
+	Revoked   bool      `json:"revoked" gorm:"not null;default:false;index"`
 }
