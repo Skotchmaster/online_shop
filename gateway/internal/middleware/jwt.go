@@ -8,17 +8,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/Skotchmaster/online_shop/pkg/tokens"
 )
 
 const (
 	CtxUserID = "user_id"
 	CtxRole   = "role"
 )
-
-type Claims struct {
-	Role string `json:"role"`
-	jwt.RegisteredClaims
-}
 
 func Middleware(secret []byte) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -33,7 +29,7 @@ func Middleware(secret []byte) echo.MiddlewareFunc {
 			}
 			tokenStr := parts[1]
 
-			claims := &Claims{}
+			claims := &tokens.AccessClaims{}
 			tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 				if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 					return nil, errors.New("unexpected sign method")
