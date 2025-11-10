@@ -1,14 +1,11 @@
 package middleware
 
 import (
-	"errors"
 	"net/http"
 	"slices"
-	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/labstack/echo/v4"
 	"github.com/Skotchmaster/online_shop/pkg/tokens"
+	"github.com/labstack/echo/v4"
 )
 
 const (
@@ -19,32 +16,18 @@ const (
 func Middleware(secret []byte) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			auth := c.Request().Header.Get("Authorization")
-			if auth == "" {
-				return echo.NewHTTPError(http.StatusUnauthorized, "missing Authorization header")
+			accessCookie, err := c.Cookie("accessToken")
+			if err != nil || accessCookie.Value == "" {
+				return echo.NewHTTPError(http.StatusUnauthorized, "missing access token")
 			}
-			parts := strings.SplitN(auth, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-				return echo.NewHTTPError(http.StatusUnauthorized, "invalid Authorization header")
-			}
-			tokenStr := parts[1]
-
-			claims := &tokens.AccessClaims{}
-			tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-				if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-					return nil, errors.New("unexpected sign method")
-				}
-				return secret, nil
-			})
-
-			if err != nil || !tkn.Valid {
-				return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+			claims, err := tokens.AccessClaimsFromToken(accessCookie.Value, secret)
+			if err != nil || claims == nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
 			}
 
 			if claims.Subject == "" {
 				return echo.NewHTTPError(http.StatusUnauthorized, "token has no subject")
 			}
-
 			c.Set(CtxUserID, claims.Subject)
 			c.Set(CtxRole, claims.Role)
 
@@ -54,10 +37,10 @@ func Middleware(secret []byte) echo.MiddlewareFunc {
 }
 
 func RequireRole(required []string) echo.MiddlewareFunc {
-	return func (next echo.HandlerFunc) echo.HandlerFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			role, _ := c.Get(CtxRole).(string)
-			if role == ""{
+			if role == "" {
 				return echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing role")
 			}
 			if !slices.Contains(required, role) {
