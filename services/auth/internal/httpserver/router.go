@@ -2,28 +2,29 @@ package httpserver
 
 import (
 	"net/http"
+	"os"
 
-	"github.com/Skotchmaster/online_shop/pkg/middleware/auth"
+	"github.com/Skotchmaster/online_shop/services/auth/internal/middleware"
 	"github.com/labstack/echo/v4"
 )
 
 type Deps struct {
-	AuthHandler AuthHTTP
-	Token auth.TokenService
+	AuthHandler *AuthHTTP
 }
 
 func Register(e *echo.Echo, d *Deps) {
 	e.GET("/health/live", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 	e.GET("/health/ready", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 
-	api := e.Group("/api/v1")
+	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
+	authMw := middleware.NewSimpleAuth(jwtSecret)
 
-	auth := api.Group("/auth")
-	auth.POST("/register", d.AuthHandler.Register)
-	auth.POST("/login", d.AuthHandler.Login)
+	e.POST("/register", d.AuthHandler.Register)
+	e.POST("/login", d.AuthHandler.Login)
+	e.POST("/refresh", d.AuthHandler.Refresh)
 
-	private := auth.Group("")
-	private.Use(d.Token.AutoRefreshMiddleware)
+	private := e.Group("")
+	private.Use(authMw.RequireAuth)
+	
 	private.POST("/logout", d.AuthHandler.LogOut)
-
 }

@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/Skotchmaster/online_shop/pkg/middleware/auth"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/config"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/httpserver"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/repo"
@@ -31,27 +30,25 @@ func main() {
 		log.Fatalf("db init error: %v", err)
 	}
 
-	GormRepo := repo.GormRepo{
-		DB: db,
-		JWTSecret: cfg.JWTSecret,
+	gormRepo := repo.GormRepo{
+		DB:            db,
+		JWTSecret:     cfg.JWTSecret,
 		RefreshSecret: cfg.RefreshSecret,
 	}
 
-	AuthHTTP := httpserver.AuthHTTP{
-		Svc: &service.AuthService{
-			Repo: GormRepo,
-		},
+	authService := &service.AuthService{
+		Repo: gormRepo,
+	}
+
+	authHandler := &httpserver.AuthHTTP{
+		Svc: authService,
 	}
 
 	httpserver.Register(e, &httpserver.Deps{
-		AuthHandler: AuthHTTP,
-		Token: auth.TokenService{
-			DB: db,
-			JWTSecret: cfg.JWTSecret,
-			RefreshSecret: cfg.RefreshSecret,
-		},
+		AuthHandler: authHandler,
 	})
 
+	// Запуск сервера
 	go func() {
 		if err := e.Start(cfg.AuthURL); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("echo start: %v", err)
@@ -61,6 +58,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
 	<-stop
+	log.Println("Shutting down server...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
@@ -68,4 +66,5 @@ func main() {
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		log.Printf("echo shutdown: %v", err)
 	}
+	log.Println("Server stopped")
 }

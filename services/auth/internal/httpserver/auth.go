@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Skotchmaster/online_shop/pkg/logging"
-	jwthelp "github.com/Skotchmaster/online_shop/services/auth/internal/jwt"
+	jwthelp "github.com/Skotchmaster/online_shop/pkg/jwt"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/service"
 	"github.com/labstack/echo/v4"
 )
@@ -81,7 +81,7 @@ func (h *AuthHTTP) LogOut(c echo.Context) error {
 	refreshCookie, err := c.Cookie("refreshToken")
 	if err == nil {
 		
-		result := h.Svc.LogOut(ctx, refreshCookie.Value)
+		result := h.Svc.Repo.LogOut(refreshCookie.Value)
 
 		if result != nil {
 			c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
@@ -99,3 +99,39 @@ func (h *AuthHTTP) LogOut(c echo.Context) error {
 		"message": "loged out",
 	})
 }
+
+func (h *AuthHTTP) Refresh(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "refresh")
+
+	refreshToken, err := c.Cookie("refreshToken")
+	if err != nil{
+		l.Warn("refresh_error", "status", 500, "reason", "cannot check refreshToken", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, 500)
+	}
+	accessToken, err := c.Cookie("accessToken")
+	if err != nil{
+		l.Warn("refresh_error", "status", 500, "reason", "cannot check refreshToken", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, 500)
+	}
+	res, err := h.Svc.Refresh(ctx, refreshToken.Value, accessToken.Value)
+	if err != nil{
+		c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
+		c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
+		return nil
+	}
+	accessCookie := jwthelp.CreateCookie("accessToken", res.AccessToken, "/", res.AccessExp)
+	c.SetCookie(accessCookie)
+
+	refreshCookie := jwthelp.CreateCookie("refreshToken", res.RefreshToken, "/", res.RefreshExp)
+	c.SetCookie(refreshCookie)
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"access_token":  res.AccessToken,
+		"refresh_token": res.RefreshToken,
+		"access_exp":    res.AccessExp.Unix(),
+		"refresh_exp":   res.RefreshExp.Unix(),
+		"is_admin":      res.IsAdmin,
+	})
+}
+ 
