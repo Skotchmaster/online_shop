@@ -48,7 +48,6 @@ func main() {
 		AuthHandler: authHandler,
 	})
 
-	// Запуск сервера
 	go func() {
 		if err := e.Start(cfg.AuthURL); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("echo start: %v", err)

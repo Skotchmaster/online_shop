@@ -1,7 +1,6 @@
 package httpserver
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/Skotchmaster/online_shop/pkg/logging"
@@ -28,7 +27,11 @@ func (h *AuthHTTP) Register(c echo.Context) error {
 	}
 
 	if err := h.Svc.Register(ctx, req.Username, req.Password); err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "regiser failed")
+		l.Warn("register_failed", "error", err)
+		if err.Error() == "user already exist" {
+			return echo.NewHTTPError(http.StatusConflict, "user already exists")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, "registration failed")
 	}
 
 	return c.JSON(http.StatusOK, echo.Map{
@@ -53,12 +56,8 @@ func (h *AuthHTTP) Login(c echo.Context) error {
 
 	res, err := h.Svc.Login(ctx, req.Username, req.Password)
 	if err != nil {
-		code := http.StatusUnauthorized
-		if errors.Is(err, echo.ErrBadGateway.Internal) {
-			code = http.StatusInternalServerError
-		}
-		l.Warn("login_failed", "status", code, "error", err)
-		return echo.NewHTTPError(code, "invalid username or password")
+		l.Warn("login_failed", "error", err)
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username or password")
 	}
 
 	accessCookie := jwthelp.CreateCookie("accessToken", res.AccessToken, "/", res.AccessExp)
@@ -75,29 +74,31 @@ func (h *AuthHTTP) Login(c echo.Context) error {
 }
 
 func (h *AuthHTTP) LogOut(c echo.Context) error {
-	ctx := c.Request().Context()
-	l := logging.FromContext(ctx).With("handler", "auth_logout")
+    ctx := c.Request().Context()
+    l := logging.FromContext(ctx).With("handler", "auth_logout")
 
-	refreshCookie, err := c.Cookie("refreshToken")
-	if err == nil {
-		
-		result := h.Svc.Repo.LogOut(refreshCookie.Value)
+    var refreshTokenValue string
+    
+    refreshCookie, err := c.Cookie("refreshToken")
+    if err == nil && refreshCookie != nil {
+        refreshTokenValue = refreshCookie.Value
+    }
 
-		if result != nil {
-			c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
-			c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
-			l.Error("logout_failed", "status", 500, "reason", "cannot revoke refreshToken", "error", result)
-			return echo.NewHTTPError(http.StatusInternalServerError, 500)
-		}
-	}
-	
-	c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
-	c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
+    if err := h.Svc.LogOut(ctx, refreshTokenValue); err != nil {
+        c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
+        c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
+        
+        l.Error("logout_failed", "status", 500, "error", err)
+        return echo.NewHTTPError(http.StatusInternalServerError, "logout failed")
+    }
 
-	l.Info("successful_logout")
-	return c.JSON(http.StatusOK, echo.Map{
-		"message": "loged out",
-	})
+    c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
+    c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
+
+    l.Info("logout_successful")
+    return c.JSON(http.StatusOK, echo.Map{
+        "message": "logged out",
+    })
 }
 
 func (h *AuthHTTP) Refresh(c echo.Context) error {
@@ -105,20 +106,23 @@ func (h *AuthHTTP) Refresh(c echo.Context) error {
 	l := logging.FromContext(ctx).With("handler", "refresh")
 
 	refreshToken, err := c.Cookie("refreshToken")
-	if err != nil{
-		l.Warn("refresh_error", "status", 500, "reason", "cannot check refreshToken", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, 500)
+	if err != nil {
+		l.Warn("refresh_failed", "status", 401, "reason", "missing refresh token", "error", err)
+		return echo.NewHTTPError(http.StatusUnauthorized, "missing refresh token")
 	}
+
 	accessToken, err := c.Cookie("accessToken")
-	if err != nil{
-		l.Warn("refresh_error", "status", 500, "reason", "cannot check refreshToken", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, 500)
+	if err != nil {
+		l.Warn("refresh_failed", "status", 401, "reason", "missing access token", "error", err)
+		return echo.NewHTTPError(http.StatusUnauthorized, "missing access token")
 	}
+
 	res, err := h.Svc.Refresh(ctx, refreshToken.Value, accessToken.Value)
-	if err != nil{
+	if err != nil {
 		c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
 		c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
-		return nil
+		l.Warn("refresh_failed", "status", 401, "error", err)
+		return echo.NewHTTPError(http.StatusUnauthorized, "refresh failed")
 	}
 	accessCookie := jwthelp.CreateCookie("accessToken", res.AccessToken, "/", res.AccessExp)
 	c.SetCookie(accessCookie)

@@ -28,7 +28,7 @@ func must(v string, name string) string {
 func Load() *Config {
 	cfg := &Config{
 		AuthURL:    must(os.Getenv("AUTH_URL"), "AUTH_URL"),
-		JWTSecret:  []byte(must(os.Getenv("JWT_HS256_SECRET"), "JWT_HS256_SECRET")),
+		JWTSecret:  []byte(must(os.Getenv("JWT_SECRET"), "JWT_SECRET")),
 		RefreshSecret:  []byte(must(os.Getenv("REFRESH_SECRET"), "REFRESH_SECRET")),
 	}
 	return cfg
@@ -49,7 +49,7 @@ func configurePool(sqlDB *sql.DB) {
 }
 
 func InitDB(ctx context.Context) (*gorm.DB, error) {
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := must(os.Getenv("DATABASE_URL"), "DATABASE_URL")
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		PrepareStmt: true,

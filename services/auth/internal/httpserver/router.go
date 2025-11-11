@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"net/http"
-	"os"
 
 	"github.com/Skotchmaster/online_shop/services/auth/internal/middleware"
 	"github.com/labstack/echo/v4"
@@ -10,14 +9,14 @@ import (
 
 type Deps struct {
 	AuthHandler *AuthHTTP
+	JWT_Secret string
 }
 
 func Register(e *echo.Echo, d *Deps) {
 	e.GET("/health/live", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 	e.GET("/health/ready", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 
-	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
-	authMw := middleware.NewSimpleAuth(jwtSecret)
+	authMw := middleware.NewSimpleAuth([]byte(d.JWT_Secret))
 
 	e.POST("/register", d.AuthHandler.Register)
 	e.POST("/login", d.AuthHandler.Login)

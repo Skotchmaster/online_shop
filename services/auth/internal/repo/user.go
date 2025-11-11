@@ -29,8 +29,8 @@ func (r *GormRepo) UserExist(username, password string) (*models.User, error) {
 func (r *GormRepo) UserNotExist(user models.User) (error) {
 	if err := r.DB.Where("username = ?", user.Username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound){
-			if res := r.DB.Create(&user); res != nil {
-				return err
+			if res := r.DB.Create(&user).Error; res != nil {
+				return res
 			} else {
 				return nil
 			}
