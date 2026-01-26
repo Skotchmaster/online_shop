@@ -7,7 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/Skotchmaster/online_shop/internal/logging"
+	"github.com/Skotchmaster/online_shop/pkg/logging"
 )
 
 func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
