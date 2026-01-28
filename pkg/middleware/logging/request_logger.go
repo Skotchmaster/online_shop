@@ -7,7 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/Skotchmaster/online_shop/internal/logging"
+	"github.com/Skotchmaster/online_shop/pkg/logging"
 )
 
 func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
@@ -18,7 +18,7 @@ func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
 			l := base.With(
 				"method", c.Request().Method,
 				"path", c.Path(),
-				"uri", c.Request().URL.Path,
+				"url", c.Request().URL.Path,
 				"remote_ip", c.RealIP(),
 				"user_agent", c.Request().UserAgent(),
 			)
