@@ -4,6 +4,4 @@ import "gorm.io/gorm"
 
 type GormRepo struct {
 	DB            *gorm.DB
-	JWTSecret     []byte
-	RefreshSecret []byte
 }

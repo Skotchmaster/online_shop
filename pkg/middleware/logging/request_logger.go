@@ -18,7 +18,7 @@ func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
 			l := base.With(
 				"method", c.Request().Method,
 				"path", c.Path(),
-				"uri", c.Request().URL.Path,
+				"url", c.Request().URL.Path,
 				"remote_ip", c.RealIP(),
 				"user_agent", c.Request().UserAgent(),
 			)

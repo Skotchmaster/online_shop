@@ -48,9 +48,9 @@ func (r *GormRepo) DeleteOneFromCart(ctx context.Context, productID uuid.UUID, u
 			if err := tx.Model(&item).Update("quantity", gorm.Expr("quantity - 1")).Error; err != nil {
 				return err
 			}
-            if err := tx.Save(&item).Error; err != nil {
-                return err
-            }
+            if err := tx.Where("product_id = ? AND user_id = ?", productID, userID).First(&item).Error; err != nil {
+				return err
+			}
 		} else {
 			if err := tx.Delete(&item).Error; err != nil {
 				return err
