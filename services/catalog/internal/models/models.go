@@ -1,9 +1,22 @@
 package models
 
+import (
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
 type Product struct {
-	ID          uint    `gorm:"primaryKey;autoIncrement"  json:"id" `
-	Name        string  `gorm:"not null"                  json:"name"`
-	Description string  `gorm:"not null"                  json:"description"`
-	Price       float64 `gorm:"not null"                  json:"price"`
-	Count       uint    `json:"count"`
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	Name        string    `gorm:"not null" json:"name"`
+	Description string    `gorm:"not null" json:"description"`
+	Price       float64   `gorm:"not null" json:"price"`
+	Count       uint      `json:"count"`
+}
+
+func (p *Product) BeforeCreate(tx *gorm.DB) error {
+	if p.ID == uuid.Nil {
+		p.ID = uuid.New()
+	}
+
+	return nil
 }

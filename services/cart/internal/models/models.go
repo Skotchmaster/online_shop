@@ -19,7 +19,3 @@ func (c *CartItem) BeforeCreate(tx *gorm.DB) error {
     }
     return nil
 }
-
-func (CartItem) TableName() string {
-    return "cart_items"
-}

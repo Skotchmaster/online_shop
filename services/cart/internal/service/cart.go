@@ -14,36 +14,24 @@ type CartService struct {
 
 func (h *CartService) GetCart(ctx context.Context, userID uuid.UUID) ([]models.CartItem, error) {
 	items, err := h.Repo.GetCart(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
 
-	return items, nil
+	return items, err
 }
 
 func (h *CartService) AddToCart(ctx context.Context, item *models.CartItem) error {
-	if err := h.Repo.AddToCart(ctx, item); err != nil {
-		return err
-	}
+	err := h.Repo.AddToCart(ctx, item)
 
-	return nil
+	return err
 }
 
 func (h *CartService) DeleteOneFromCart(ctx context.Context, productID uuid.UUID, userID uuid.UUID) (bool, models.CartItem, error) {
 	deleted, item, err := h.Repo.DeleteOneFromCart(ctx, productID, userID)
-	if err != nil {
-		return false, models.CartItem{}, err
-	}
 	
 	return deleted, item, err
 }
 
 func (h *CartService) DeleteAllFromCart(ctx context.Context, userID uuid.UUID) error {
 	err := h.Repo.DeleteAllFromCart(ctx, userID)
-	if err != nil {
-		return err
-	}
 
-	return nil
+	return err
 }
-
