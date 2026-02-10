@@ -3,6 +3,7 @@ package loggingmw
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -13,7 +14,15 @@ import (
 func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			rid := c.Request().Header.Get(echo.HeaderXRequestID)
+			start := time.Now()
+
+			rid := c.Response().Header().Get(echo.HeaderXRequestID)
+			if rid == "" {
+				rid = c.Request().Header.Get(echo.HeaderXRequestID)
+			}
+			if rid != "" {
+				c.Response().Header().Set(echo.HeaderXRequestID, rid)
+			}
 
 			l := base.With(
 				"method", c.Request().Method,
@@ -30,14 +39,16 @@ func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
 			req := c.Request().WithContext(logging.IntoContext(c.Request().Context(), l))
 			c.SetRequest(req)
 
-			start := time.Now()
 			err := next(c)
 			dur := time.Since(start)
 			status := c.Response().Status
 
 			if err != nil {
-				c.Echo().HTTPErrorHandler(err, c)
-				status = c.Response().Status
+				if he, ok := err.(*echo.HTTPError); ok {
+					status = he.Code
+				} else {
+					status = http.StatusInternalServerError
+				}
 			}
 
 			switch {
@@ -48,7 +59,7 @@ func RequestLogger(base *slog.Logger) echo.MiddlewareFunc {
 			default:
 				l.Info("request completed", "status", status, "duration_ms", dur.Milliseconds(), "bytes", c.Response().Size)
 			}
-			return nil
+			return err
 		}
 	}
 }

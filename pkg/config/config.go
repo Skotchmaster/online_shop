@@ -1,85 +1,75 @@
 package config
 
 import (
-	"context"
-	"database/sql"
-	"fmt"
-	"log"
 	"os"
-	"time"
-
-	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	"strconv"
+	"strings"
 )
 
 type Config struct {
-	DB_HOST        string
-	DB_PORT        string
-	DB_USER        string
-	DB_PASSWORD    string
-	DB_NAME        string
-	JWT_SECRET     string
-	REFRESH_SECRET string
-	KAFKA_ADDRESS  string
+	ServiceName string
+
+	ServerPort int
+
+	DatabaseURL string
+
+	JWTAccessSecret  []byte
+	JWTRefreshSecret []byte
+
+	AuthHTTPURL  string
+	AuthGRPCAddr string
+
+	KafkaBrokers []string
 }
 
-func LoadConfig() (*Config, error) {
-	if err := godotenv.Load(".env"); err != nil {
-		log.Printf("Notice: .env file not found: %v. Using system environment variables", err)
+func Load() Config {
+	return Config{
+		ServiceName: EnvDefault("SERVICE_NAME", ""),
+
+		ServerPort:  EnvIntDefault("SERVER_PORT", 8080),
+
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+
+		JWTAccessSecret:  []byte(os.Getenv("JWT_SECRET")),
+		JWTRefreshSecret: []byte(os.Getenv("JWT_REFRESH_SECRET")),
+
+		AuthHTTPURL:  os.Getenv("AUTH_URL"),
+		AuthGRPCAddr: os.Getenv("AUTH_GRPC_ADDR"),
+
+		KafkaBrokers: CSV(os.Getenv("KAFKA_BROKERS")),
 	}
+}
 
-	config := &Config{
-		DB_HOST:        os.Getenv("DB_HOST"),
-		DB_PORT:        os.Getenv("DB_PORT"),
-		DB_USER:        os.Getenv("DB_USER"),
-		DB_PASSWORD:    os.Getenv("DB_PASSWORD"),
-		DB_NAME:        os.Getenv("DB_NAME"),
-		JWT_SECRET:     os.Getenv("JWT_SECRET"),
-		REFRESH_SECRET: os.Getenv("REFRESH_SECRET"),
-		KAFKA_ADDRESS:  os.Getenv("KAFKA_ADDRESS"),
+func CSV(v string) []string {
+	if v == "" {
+		return nil
 	}
-
-	return config, nil
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
-func configurePool(sqlDB *sql.DB) {
-	const (
-		maxOpenConns    = 20
-		maxIdleConns    = 10
-		connMaxLifetime = 30 * time.Minute
-		connMaxIdleTime = 5 * time.Minute
-	)
-
-	sqlDB.SetMaxOpenConns(maxOpenConns)
-	sqlDB.SetMaxIdleConns(maxIdleConns)
-	sqlDB.SetConnMaxLifetime(connMaxLifetime)
-	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
+func EnvDefault(key, def string) string {
+	if os.Getenv(key) != ""{
+		return os.Getenv(key)
+	}
+	return def
 }
 
-func InitDB(ctx context.Context) (*gorm.DB, error) {
-	dsn := os.Getenv("DATABASE_URL")
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		PrepareStmt: true,
-		NowFunc:     func() time.Time { return time.Now().UTC() },
-	})
+func EnvIntDefault(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
 	if err != nil {
-		return nil, fmt.Errorf("подключение к БД: %w", err)
+		return def
 	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("получение sql.DB: %w", err)
-	}
-	configurePool(sqlDB)
-
-	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := sqlDB.PingContext(pingCtx); err != nil {
-		return nil, fmt.Errorf("ping БД: %w", err)
-	}
-
-	return db, nil
+	return n
 }
