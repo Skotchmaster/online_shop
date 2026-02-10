@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"time"
-
+	
 	"github.com/Skotchmaster/online_shop/pkg/authclient"
 	"github.com/Skotchmaster/online_shop/services/cart/internal/config"
 	"github.com/Skotchmaster/online_shop/services/cart/internal/httpserver"
@@ -21,7 +21,7 @@ func main() {
 	cfg := config.Load()
 
 	e := echo.New()
-	e.HideBanner = true
+	
 
 	e.Server.ReadTimeout = 10 * time.Second
 	e.Server.WriteTimeout = 15 * time.Second

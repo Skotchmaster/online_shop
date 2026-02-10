@@ -18,8 +18,11 @@ func Calculate(page, size int) (offset int, limit int) {
     if page < 1 {
         page = 1
     }
-    if size < 1 {
+    if size < 1  {
         size = DefaultPageSize
+    }
+    if size > 100 {
+        size = 100
     }
     
     offset = (page - 1) * size

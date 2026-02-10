@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/Skotchmaster/online_shop/services/catalog/internal/models"
+	"github.com/Skotchmaster/online_shop/services/catalog/internal/transport"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func (r *GormRepo) GetProduct(ctx context.Context, id uuid.UUID) (*models.Product, error) {
@@ -29,23 +31,31 @@ func(r *GormRepo) GetProducts(ctx context.Context, offset, limit int) (int64, *[
 	return total, &items, "", nil
 }
 
-func(r *GormRepo) CreateProduct(ctx context.Context, prod *models.Product) error {
-	if err := r.DB.WithContext(ctx).Create(&prod).Error; err != nil {
-		return err
+func(r *GormRepo) CreateProduct(ctx context.Context, prod *models.Product) (*models.Product, error) {
+	if err := r.DB.WithContext(ctx).Create(prod).Error; err != nil {
+		return nil, err
 	}
-	return nil
+	return prod, nil
 }
 
-func(r *GormRepo) PatchProduct(ctx context.Context, req models.Product, id uuid.UUID) (*models.Product, error) {
+func(r *GormRepo) PatchProduct(ctx context.Context, req transport.PatchProductRequest, id uuid.UUID) (*models.Product, error) {
 	var prod models.Product
 	if err := r.DB.WithContext(ctx).First(&prod, id).Error; err != nil {
 		return nil, err
 	}
 
-	prod.Name = req.Name
-	prod.Description = req.Description
-	prod.Price = req.Price
-	prod.Count = req.Count
+	if req.Name != nil {
+		prod.Name = *req.Name
+	}
+	if req.Description != nil {
+		prod.Description = *req.Description
+	}
+	if req.Price != nil {
+		prod.Price = *req.Price
+	}
+	if req.Count != nil {
+		prod.Count = *req.Count
+	}
 
 	if err := r.DB.WithContext(ctx).Save(&prod).Error; err != nil {
 		return nil, err
@@ -55,8 +65,16 @@ func(r *GormRepo) PatchProduct(ctx context.Context, req models.Product, id uuid.
 }
 
 func(r *GormRepo) DeleteProduct(ctx context.Context, id uuid.UUID) error {
-	if err := r.DB.WithContext(ctx).Delete(&models.Product{}, id).Error; err != nil {
-		return err
+	res := r.DB.WithContext(ctx).Delete(&models.Product{}, id)
+	
+	if res.Error != nil {
+		return res.Error
 	}
+
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
 	return nil
+
 }
