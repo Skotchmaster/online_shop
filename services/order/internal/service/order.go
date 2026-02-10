@@ -17,11 +17,11 @@ var (
 	ErrConflict   = errors.New("conflict")   // 409
 )
 
-type OrserService struct {
+type OrderService struct {
 	repo *repo.GormRepo
 }
 
-func(svc *OrserService) CreateOrder(ctx context.Context, req transport.CreateOrderRequest, userID uuid.UUID) (*models.Order, error) {
+func(svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrderRequest, userID uuid.UUID) (*models.Order, error) {
 	if len(req.Items) == 0 {
 		return nil, fmt.Errorf("%w: items required", ErrValidation)
 	}
@@ -61,4 +61,8 @@ func(svc *OrserService) CreateOrder(ctx context.Context, req transport.CreateOrd
 	}
 
 	return svc.repo.CreateOrder(ctx, order)
+}
+
+func(svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.Order, error) {
+	return svc.repo.ListOrders(ctx, userID, limit, offset)
 }
