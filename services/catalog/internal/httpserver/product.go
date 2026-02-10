@@ -7,7 +7,7 @@ import (
 	"github.com/Skotchmaster/online_shop/pkg/logging"
 	"github.com/Skotchmaster/online_shop/services/catalog/internal/service"
 	"github.com/Skotchmaster/online_shop/services/catalog/internal/transport"
-	"github.com/Skotchmaster/online_shop/services/catalog/internal/util"
+	"github.com/Skotchmaster/online_shop/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
