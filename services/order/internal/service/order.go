@@ -9,6 +9,7 @@ import (
 	"github.com/Skotchmaster/online_shop/services/order/internal/repo"
 	"github.com/Skotchmaster/online_shop/services/order/internal/transport"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 var (
@@ -16,6 +17,26 @@ var (
 	ErrNotFound   = errors.New("not found")  // 404
 	ErrConflict   = errors.New("conflict")   // 409
 )
+
+func canTransition(from, to models.OrderStatus) bool {
+	allowed := map[models.OrderStatus]map[models.OrderStatus]bool{
+		models.OrderStatusNew: {
+			models.OrderStatusPaid:      true,
+			models.OrderStatusCancelled: true,
+		},
+		models.OrderStatusPaid: {
+			models.OrderStatusShipped:   true,
+			models.OrderStatusCancelled: true,
+		},
+		models.OrderStatusShipped: {
+			models.OrderStatusDone: true,
+		},
+		models.OrderStatusDone:      {},
+		models.OrderStatusCancelled: {},
+	}
+	return allowed[from][to]
+}
+
 
 type OrderService struct {
 	repo *repo.GormRepo
@@ -65,4 +86,38 @@ func(svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrd
 
 func(svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.Order, error) {
 	return svc.repo.ListOrders(ctx, userID, limit, offset)
+}
+
+func(svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
+	order, err := svc.repo.GetOrder(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if order.UserID != userID {
+		return nil, ErrNotFound
+	}
+	return order, nil
+}
+
+func(svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
+	order, err := svc.repo.GetOrder(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	prev := order.Status
+
+	if !canTransition(prev, status) {
+		return nil, ErrConflict
+	}
+
+	updated, err := svc.repo.UpdateOrder(ctx, id, prev, status)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return updated, nil
 }

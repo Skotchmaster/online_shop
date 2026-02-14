@@ -18,7 +18,7 @@ const (
 )
 
 type Order struct {
-	ID        uuid.UUID   `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	ID        uuid.UUID   `gorm:"type:uuid;primaryKey" json:"id"`
 	UserID    uuid.UUID   `gorm:"type:uuid;not null;index" json:"user_id"`
 	Status    OrderStatus `gorm:"type:text;not null" json:"status"`
 	Total     int64       `gorm:"type:bigint;not null" json:"total"`
@@ -39,7 +39,7 @@ func (o *Order) BeforeCreate(tx *gorm.DB) error {
 }
 
 type OrderItem struct {
-	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	OrderID   uuid.UUID `gorm:"type:uuid;not null;index" json:"order_id"`
 	ProductID uuid.UUID `gorm:"type:uuid;not null;index" json:"product_id"`
 

@@ -25,6 +25,31 @@ func (r *GormRepo) ListOrders(ctx context.Context, userID uuid.UUID, limit, offs
 	var orders []models.Order
 	if err := q.Order("created_at DESC").Limit(limit).Offset(offset).Find(&orders).Error; err != nil {
 		return nil, err
-	}
+	}	
 	return orders, nil
+}
+
+func(r *GormRepo) GetOrder(ctx context.Context, id uuid.UUID) (*models.Order, error) {
+	var order models.Order
+	if err := r.DB.WithContext(ctx).Preload("OrderItems").Where("ID = ?", id).First(&order).Error; err != nil{
+		return nil, err
+	}
+	return &order, nil
+}
+
+func(r *GormRepo) UpdateOrder(ctx context.Context, id uuid.UUID, prev models.OrderStatus, curr models.OrderStatus) (*models.Order, error) {
+	res := r.DB.WithContext(ctx).Where("id = ? AND status = ?", id, prev).Update("status", curr)
+
+	if res.RowsAffected == 0 {
+
+		ord, err := r.GetOrder(ctx, id)
+
+		if ord.Status == curr {
+			return ord, nil
+		}
+
+		return nil, err
+	}
+
+	return r.GetOrder(ctx, id)
 }

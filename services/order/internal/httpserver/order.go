@@ -6,6 +6,7 @@ import (
 
 	"github.com/Skotchmaster/online_shop/pkg/logging"
 	"github.com/Skotchmaster/online_shop/pkg/util"
+	"github.com/Skotchmaster/online_shop/services/order/internal/models"
 	"github.com/Skotchmaster/online_shop/services/order/internal/service"
 	"github.com/Skotchmaster/online_shop/services/order/internal/transport"
 	"github.com/google/uuid"
@@ -65,11 +66,11 @@ func(h *OrderHTTP) CreateOrder(c echo.Context) error {
 
 func(h *OrderHTTP) GetOrders(c echo.Context) error {
 	ctx := c.Request().Context()
-	l := logging.FromContext(ctx).With("handler", "order.create_order")
+	l := logging.FromContext(ctx).With("handler", "order.get_orders")
 
 	userID, err := h.GetID(c)
 	if err != nil {
-		l.Warn("create_order_error", "status", 401, "reason", "unauthorized", "error", err)
+		l.Warn("get_orders_error", "status", 401, "reason", "unauthorized", "error", err)
 		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
 	}
 
@@ -80,11 +81,75 @@ func(h *OrderHTTP) GetOrders(c echo.Context) error {
 
     orders, err := h.Svc.ListOrders(ctx, userID, limit, offset)
 	if err != nil {
-		l.Error("create_order_error", "status", 500, "reason", "internal server error", "error", err)
+		l.Error("get_orders_error", "status", 500, "reason", "internal server error", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "internal server error")
 	}
 
 	l.Info("get_orders_success")
 	return c.JSON(http.StatusOK, orders)
 
+}
+
+func(h *OrderHTTP) GetOrder(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "order.get_order")
+
+	idstr := c.Param("id")
+	id, err := uuid.Parse(idstr)
+	if err != nil {
+		l.Error("get_order_error", "status", 400, "reason", "id is not uuid", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "id is not uuid")
+	}
+
+	userID, err := h.GetID(c)
+	if err != nil {
+		l.Warn("get_orders_error", "status", 401, "reason", "unauthorized", "error", err)
+		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
+	}	
+
+	order, err := h.Svc.GetOrder(ctx, id, userID)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound){
+			l.Error("get_order_error", "status", 403, "reason", "you dont have rights to see this order", "error", err)
+			return echo.NewHTTPError(http.StatusForbidden, "you dont have rights to see this order")
+		}
+			l.Error("get_order_error", "status", 500, "reason", "internal error", "error", err)
+			return echo.NewHTTPError(http.StatusForbidden, "internal error")
+	}
+
+	l.Info("get_order_success")
+	return c.JSON(http.StatusOK, order)
+}
+
+func(h *OrderHTTP) UpdateOrder(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "order.update_order")
+
+	idstr := c.Param("id")
+	id, err := uuid.Parse(idstr)
+	if err != nil {
+		l.Error("update_order_error", "status", 400, "reason", "id is not uuid", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "id is not uuid")
+	}
+
+	var req struct {
+		Status models.OrderStatus `json:"status"`
+	}
+	if err := c.Bind(&req); err != nil {
+		l.Error("update_order_error", "status", 400, "reason", "status is not alowded", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "status is not alowded")
+	}
+
+	order, err := h.Svc.UpdateOrder(ctx, id, req.Status)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			l.Error("update_order_error", "status", 404, "reason", "record not found", "error", err)
+			return echo.NewHTTPError(http.StatusBadRequest, "record not found")
+		}
+		l.Error("update_order_error", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
+	}
+
+	l.Info("update_order_success")
+	return c.JSON(http.StatusOK, order)
 }
