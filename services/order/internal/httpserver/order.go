@@ -103,7 +103,7 @@ func(h *OrderHTTP) GetOrder(c echo.Context) error {
 
 	userID, err := h.GetID(c)
 	if err != nil {
-		l.Warn("get_orders_error", "status", 401, "reason", "unauthorized", "error", err)
+		l.Warn("get_order_error", "status", 401, "reason", "unauthorized", "error", err)
 		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
 	}	
 
@@ -114,7 +114,7 @@ func(h *OrderHTTP) GetOrder(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, "order not found")
 		}
 			l.Error("get_order_error", "status", 500, "reason", "internal error", "error", err)
-			return echo.NewHTTPError(http.StatusForbidden, "internal error")
+			return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 	}
 
 	l.Info("get_order_success")
@@ -145,6 +145,11 @@ func(h *OrderHTTP) UpdateOrder(c echo.Context) error {
 		if errors.Is(err, service.ErrNotFound) {
 			l.Error("update_order_error", "status", 404, "reason", "record not found", "error", err)
 			return echo.NewHTTPError(http.StatusNotFound, "record not found")
+		} else {
+			if errors.Is(err, service.ErrConflict) {
+				l.Error("update_order_error", "status", 409, "reason", "cant skip status transicion", "error", err)
+				return echo.NewHTTPError(http.StatusNotFound, "cant skip status transicion")
+			}
 		}
 		l.Error("update_order_error", "status", 500, "reason", "internal error", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
@@ -176,7 +181,17 @@ func (h *OrderHTTP) CancelOrder(c echo.Context) error {
 		if errors.Is(err, service.ErrNotFound) {
 			l.Error("cancel_order_error", "status", 404, "reason", "record not found", "error", err)
 			return echo.NewHTTPError(http.StatusNotFound, "record not found")
-		}
+		} else {
+			if errors.Is(err, service.ErrConflict) {
+				l.Error("cancel_order_error", "status", 409, "reason", "you cant cancel order by this moment", "error", err)
+				return echo.NewHTTPError(http.StatusNotFound, "you cant cancel order by this moment")	
+			} else {
+				if errors.Is(err, service.ErrConflict) {
+					l.Error("cancel_order_error", "status", 403, "reason", "you dont have enough rights to see this page", "error", err)
+					return echo.NewHTTPError(http.StatusNotFound, "you dont have enough rights to see this page")	
+				}
+			}
+		} 
 		l.Error("cancel_order_error", "status", 500, "reason", "internal error", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 	}

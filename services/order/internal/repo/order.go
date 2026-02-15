@@ -52,6 +52,10 @@ func(r *GormRepo) UpdateOrder(ctx context.Context, id uuid.UUID, prev models.Ord
 		}
 	}
 
+	if res.Error != nil {
+		return nil, res.Error
+	}
+
 	return r.GetOrder(ctx, id)
 }
 
@@ -61,13 +65,19 @@ func(r *GormRepo) CancelOrder(ctx context.Context, id uuid.UUID, status models.O
 
 	if res.RowsAffected == 0 {
 
-		ord, err := r.GetOrder(ctx, id)
+    ord, err := r.GetOrder(ctx, id)
+    if err != nil { 
+		return nil, err 
+	}
+    if ord.Status == models.OrderStatusCancelled {
+		 return ord, nil 
+	}
 
-		if ord.Status == status {
-			return ord, nil
-		}
+    return nil, gorm.ErrRecordNotFound
+	}
 
-		return nil, err
+	if res.Error != nil {
+		return nil, res.Error
 	}
 
 	return r.GetOrder(ctx, id)
