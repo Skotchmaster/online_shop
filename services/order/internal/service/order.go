@@ -14,6 +14,7 @@ import (
 
 var (
 	ErrValidation = errors.New("validation") // 400
+	ErrForbidden  = errors.New("validation") // 403
 	ErrNotFound   = errors.New("not found")  // 404
 	ErrConflict   = errors.New("conflict")   // 409
 )
@@ -37,12 +38,11 @@ func canTransition(from, to models.OrderStatus) bool {
 	return allowed[from][to]
 }
 
-
 type OrderService struct {
 	repo *repo.GormRepo
 }
 
-func(svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrderRequest, userID uuid.UUID) (*models.Order, error) {
+func (svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrderRequest, userID uuid.UUID) (*models.Order, error) {
 	if len(req.Items) == 0 {
 		return nil, fmt.Errorf("%w: items required", ErrValidation)
 	}
@@ -50,7 +50,7 @@ func(svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrd
 	var total int64
 	var items []models.OrderItem
 
-	for i := range(req.Items) {
+	for i := range req.Items {
 		if req.Items[i].ProductID == uuid.Nil {
 			return nil, fmt.Errorf("%w: product_id required", ErrValidation)
 		}
@@ -65,7 +65,7 @@ func(svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrd
 
 		item := models.OrderItem{
 			ProductID: req.Items[i].ProductID,
-			Quantity: req.Items[i].Quantity,
+			Quantity:  req.Items[i].Quantity,
 			UnitPrice: req.Items[i].UnitPrice,
 			LineTotal: lineTotal,
 		}
@@ -84,11 +84,11 @@ func(svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrd
 	return svc.repo.CreateOrder(ctx, order)
 }
 
-func(svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.Order, error) {
+func (svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.Order, error) {
 	return svc.repo.ListOrders(ctx, userID, limit, offset)
 }
 
-func(svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
+func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
 	order, err := svc.repo.GetOrder(ctx, id)
 	if err != nil {
 		return nil, err
@@ -99,7 +99,7 @@ func(svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.
 	return order, nil
 }
 
-func(svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
+func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
 	order, err := svc.repo.GetOrder(ctx, id)
 	if err != nil {
 		return nil, err
@@ -120,4 +120,31 @@ func(svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status mo
 	}
 
 	return updated, nil
+}
+
+func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
+	order, err := svc.repo.GetOrder(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if order.UserID != userID {
+		return nil, ErrForbidden
+	}
+
+	status := order.Status
+
+	if status != models.OrderStatusNew {
+		return nil, ErrConflict
+	}
+
+	updated, err := svc.repo.CancelOrder(ctx, id, models.OrderStatusNew)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return updated, err
 }

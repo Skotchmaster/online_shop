@@ -53,3 +53,21 @@ func(r *GormRepo) UpdateOrder(ctx context.Context, id uuid.UUID, prev models.Ord
 
 	return r.GetOrder(ctx, id)
 }
+
+func(r *GormRepo) CancelOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
+
+	res := r.DB.WithContext(ctx).Where("id = ? AND status = ", id, status).Update("status", models.OrderStatusCancelled)
+
+	if res.RowsAffected == 0 {
+
+		ord, err := r.GetOrder(ctx, id)
+
+		if ord.Status == status {
+			return ord, nil
+		}
+
+		return nil, err
+	}
+
+	return r.GetOrder(ctx, id)
+}

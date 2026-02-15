@@ -153,3 +153,34 @@ func(h *OrderHTTP) UpdateOrder(c echo.Context) error {
 	l.Info("update_order_success")
 	return c.JSON(http.StatusOK, order)
 }
+
+func (h *OrderHTTP) CancelOrder(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "order.cancel_order")
+
+	idstr := c.Param("id")
+	id, err := uuid.Parse(idstr)
+	if err != nil {
+		l.Error("cancel_order_error", "status", 400, "reason", "id is not uuid", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "id is not uuid")
+	}
+
+	userID, err := h.GetID(c)
+	if err != nil {
+		l.Warn("cancel_orders_error", "status", 401, "reason", "unauthorized", "error", err)
+		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
+	}	
+
+	order, err := h.Svc.CancelOrder(ctx, id, userID)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			l.Error("cancel_order_error", "status", 404, "reason", "record not found", "error", err)
+			return echo.NewHTTPError(http.StatusBadRequest, "record not found")
+		}
+		l.Error("cancel_order_error", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
+	}
+
+	l.Info("cancel_order_success")
+	return c.JSON(http.StatusOK, order)
+}
