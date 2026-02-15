@@ -110,8 +110,8 @@ func(h *OrderHTTP) GetOrder(c echo.Context) error {
 	order, err := h.Svc.GetOrder(ctx, id, userID)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound){
-			l.Error("get_order_error", "status", 403, "reason", "you dont have rights to see this order", "error", err)
-			return echo.NewHTTPError(http.StatusForbidden, "you dont have rights to see this order")
+			l.Error("get_order_error", "status", 404, "reason", "order not found", "error", err)
+			return echo.NewHTTPError(http.StatusNotFound, "order not found")
 		}
 			l.Error("get_order_error", "status", 500, "reason", "internal error", "error", err)
 			return echo.NewHTTPError(http.StatusForbidden, "internal error")
@@ -144,7 +144,7 @@ func(h *OrderHTTP) UpdateOrder(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			l.Error("update_order_error", "status", 404, "reason", "record not found", "error", err)
-			return echo.NewHTTPError(http.StatusBadRequest, "record not found")
+			return echo.NewHTTPError(http.StatusNotFound, "record not found")
 		}
 		l.Error("update_order_error", "status", 500, "reason", "internal error", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
@@ -175,7 +175,7 @@ func (h *OrderHTTP) CancelOrder(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			l.Error("cancel_order_error", "status", 404, "reason", "record not found", "error", err)
-			return echo.NewHTTPError(http.StatusBadRequest, "record not found")
+			return echo.NewHTTPError(http.StatusNotFound, "record not found")
 		}
 		l.Error("cancel_order_error", "status", 500, "reason", "internal error", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")

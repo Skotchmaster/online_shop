@@ -39,7 +39,7 @@ func canTransition(from, to models.OrderStatus) bool {
 }
 
 type OrderService struct {
-	repo *repo.GormRepo
+	Repo *repo.GormRepo
 }
 
 func (svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOrderRequest, userID uuid.UUID) (*models.Order, error) {
@@ -81,15 +81,15 @@ func (svc *OrderService) CreateOrder(ctx context.Context, req transport.CreateOr
 		Items:  items,
 	}
 
-	return svc.repo.CreateOrder(ctx, order)
+	return svc.Repo.CreateOrder(ctx, order)
 }
 
 func (svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.Order, error) {
-	return svc.repo.ListOrders(ctx, userID, limit, offset)
+	return svc.Repo.ListOrders(ctx, userID, limit, offset)
 }
 
 func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
-	order, err := svc.repo.GetOrder(ctx, id)
+	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid
 }
 
 func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
-	order, err := svc.repo.GetOrder(ctx, id)
+	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status m
 		return nil, ErrConflict
 	}
 
-	updated, err := svc.repo.UpdateOrder(ctx, id, prev, status)
+	updated, err := svc.Repo.UpdateOrder(ctx, id, prev, status)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
@@ -123,7 +123,7 @@ func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status m
 }
 
 func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
-	order, err := svc.repo.GetOrder(ctx, id)
+	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID, userID u
 		return nil, ErrConflict
 	}
 
-	updated, err := svc.repo.CancelOrder(ctx, id, models.OrderStatusNew)
+	updated, err := svc.Repo.CancelOrder(ctx, id, models.OrderStatusNew)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound

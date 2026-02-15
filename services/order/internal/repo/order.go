@@ -31,7 +31,7 @@ func (r *GormRepo) ListOrders(ctx context.Context, userID uuid.UUID, limit, offs
 
 func(r *GormRepo) GetOrder(ctx context.Context, id uuid.UUID) (*models.Order, error) {
 	var order models.Order
-	if err := r.DB.WithContext(ctx).Preload("OrderItems").Where("ID = ?", id).First(&order).Error; err != nil{
+	if err := r.DB.WithContext(ctx).Preload("Items").Where("ID = ?", id).First(&order).Error; err != nil{
 		return nil, err
 	}
 	return &order, nil
