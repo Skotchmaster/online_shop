@@ -20,12 +20,12 @@ func Register(e *echo.Echo, d *Deps) {
 
 	authMW := middleware.NewAutoRefreshMiddleware(d.JWTSecret, d.AuthClient)
 
-	products := e.Group("/order")
-	products.GET("", d.OrderHandler.GetOrder)
-	products.GET("/:id", d.OrderHandler.GetOrders)
-	products.POST("/create/:id", d.OrderHandler.CreateOrder)
-	products.POST("/cancel/:id", d.OrderHandler.CancelOrder)
+	orders := e.Group("/orders", authMW.RequireAuth)
+	orders.GET("", d.OrderHandler.GetOrders)
+	orders.GET("/:id", d.OrderHandler.GetOrder)
+	orders.POST("", d.OrderHandler.CreateOrder)
+	orders.POST("/:id/cancel", d.OrderHandler.CancelOrder)
 
-	admin := products.Group("", authMW.RequireAdmin)
+	admin := orders.Group("", authMW.RequireAdmin)
 	admin.PATCH("/:id", d.OrderHandler.UpdateOrder)
 }

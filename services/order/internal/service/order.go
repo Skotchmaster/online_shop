@@ -91,6 +91,9 @@ func (svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit
 func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
 	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound){
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	if order.UserID != userID {

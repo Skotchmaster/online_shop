@@ -19,7 +19,7 @@ import (
 	"github.com/Skotchmaster/online_shop/pkg/logging"
 	loggingmw "github.com/Skotchmaster/online_shop/pkg/middleware/logging"
 
-	catalogcfg "github.com/Skotchmaster/online_shop/services/order/internal/config"
+	"github.com/Skotchmaster/online_shop/services/order/internal/config"
 	"github.com/Skotchmaster/online_shop/services/order/internal/httpserver"
 	"github.com/Skotchmaster/online_shop/services/order/internal/repo"
 	"github.com/Skotchmaster/online_shop/services/order/internal/service"
@@ -30,7 +30,7 @@ func main() {
 		log.Printf("warning: could not load .env: %v", err)
 	}
 
-	cfg := catalogcfg.Load()
+	cfg := config.Load()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	db, err := pkgdb.Open(ctx, cfg.DatabaseURL)
@@ -73,7 +73,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("catalog listening on %s", srv.Addr)
+		log.Printf("order service listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}
@@ -92,5 +92,5 @@ func main() {
 		_ = sqlDB.Close()
 	}
 
-	log.Println("catalog stopped")
+	log.Println("order service stopped")
 }
