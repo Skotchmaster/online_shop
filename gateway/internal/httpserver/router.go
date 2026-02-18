@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Skotchmaster/online_shop/gateway/internal/middleware"
-	echo "github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4"
 )
 
 type Deps struct {

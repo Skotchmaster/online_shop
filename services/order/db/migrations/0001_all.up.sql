@@ -1,24 +1,35 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS orders (
-  id         bigserial PRIMARY KEY,
-  user_id    bigint   NOT NULL,
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    uuid NOT NULL,
+  status     text NOT NULL,
+  total      bigint NOT NULL CHECK (total >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
-  total      double precision NOT NULL,
-  status     text     NOT NULL
+  updated_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_orders_status
+    CHECK (status IN ('NEW', 'PAID', 'SHIPPED', 'DONE', 'CANCELLED'))
 );
-CREATE INDEX IF NOT EXISTS idx_orders_user_id    ON orders(user_id);
-CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_orders_user_created_at
+  ON orders (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_orders_created_at
+  ON orders (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS order_items (
-  id         bigserial PRIMARY KEY,
-  order_id   bigint   NOT NULL,
-  user_id    bigint   NOT NULL,
-  product_id bigint   NOT NULL,
-  quantity   integer  NOT NULL DEFAULT 1,
-  price      double precision NOT NULL,
-  CONSTRAINT chk_order_items_quantity_gt0 CHECK (quantity > 0),
-  CONSTRAINT fk_order_items_order
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id   uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id uuid NOT NULL,
+  quantity   integer NOT NULL CHECK (quantity > 0),
+
+  unit_price bigint NOT NULL CHECK (unit_price >= 0),
+  line_total bigint NOT NULL CHECK (line_total >= 0)
 );
-CREATE INDEX IF NOT EXISTS idx_order_items_order_id   ON order_items(order_id);
-CREATE INDEX IF NOT EXISTS idx_order_items_user_id    ON order_items(user_id);
-CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id);
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id
+  ON order_items (order_id);
+
+CREATE INDEX IF NOT EXISTS idx_order_items_product_id
+  ON order_items (product_id);
