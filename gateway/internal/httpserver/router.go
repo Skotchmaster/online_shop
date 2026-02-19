@@ -29,41 +29,33 @@ func Register(e *echo.Echo, d *Deps) error {
 		return err
 	}
 
-	catalogProxy, err := newProxy(d.CatalogURL, "/api/v1/catalog")
+	catalogProxy, err := newProxy(d.CatalogURL, "/api/v1")
 	if err != nil {
 		return err
 	}
 
-	orderProxy, err := newProxy(d.OrderURL, "/api/v1/order")
+	orderProxy, err := newProxy(d.OrderURL, "/api/v1")
 	if err != nil {
 		return err
 	}
 
-	cartProxy, err := newProxy(d.CartURL, "/api/v1/cart")
+	cartProxy, err := newProxy(d.CartURL, "/api/v1")
 	if err != nil {
 		return err
 	}
 
 	e.Any("/api/v1/auth/*", authProxy)
+	e.Match([]string{http.MethodGet}, "/api/v1/catalog/*", catalogProxy)
 
 	api := e.Group("/api/v1")
 	api.Use(middleware.Middleware(d.JWTSecret))
 
-	e.Match([]string{http.MethodGet}, "/api/v1/catalog/*", catalogProxy)
-	api.Match([]string{http.MethodPost, http.MethodPut, http.MethodDelete}, "/catalog/*", catalogProxy)
-
+	api.Match([]string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}, "/catalog", catalogProxy)
+	api.Match([]string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}, "/catalog/*", catalogProxy)
+	api.Any("/cart", cartProxy)
 	api.Any("/cart/*", cartProxy)
-	api.Any("/order/*", orderProxy)
-	
-	admin := api.Group("/admin")
-	admin.Use(middleware.RequireRole([]string{"admin"}))
-
-	adminCatalogProxy, err := newProxy(d.CatalogURL, "/api/v1/admin/catalog")
-	if err != nil {
-		return err
-	}
-
-	admin.Any("/catalog/*", adminCatalogProxy)
+	api.Any("/orders", orderProxy)
+	api.Any("/orders/*", orderProxy)
 
 	return nil
 }

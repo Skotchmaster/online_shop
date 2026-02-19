@@ -7,6 +7,4 @@ use (
 	./services/cart
 	./services/catalog
 	./services/order
-	./services/payment
-	./services/search
 )

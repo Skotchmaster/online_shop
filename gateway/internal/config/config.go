@@ -36,8 +36,7 @@ func Load() *Config {
 		CatalogURL: must(os.Getenv("CATALOG_URL"), "CATALOG_URL"),
 		CartURL:    must(os.Getenv("CART_URL"), "CART_URL"),
 		OrderURL:   must(os.Getenv("ORDER_URL"), "ORDER_URL"),
-		SearchURL:  getenv("SEARCH_URL", ""),
-		JWTSecret:  []byte(must(os.Getenv("JWT_HS256_SECRET"), "JWT_HS256_SECRET")),
+		JWTSecret:  []byte(must(os.Getenv("JWT_SECRET"), "JWT_SECRET")),
 	}
 	return cfg
 }

@@ -6,7 +6,7 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o /out/server ./cmd/server
+    go build -o /out/server ./cmd/gateway
 
 USER 65532:65532
 EXPOSE 8080
