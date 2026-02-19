@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Skotchmaster/online_shop/services/catalog/internal/models"
 	"github.com/Skotchmaster/online_shop/services/catalog/internal/repo"
@@ -64,3 +65,22 @@ func(s *CatalogService) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	return s.Repo.DeleteProduct(ctx, id)
 }
 
+func (s *CatalogService) SearchProducts(ctx context.Context, rawQ string, offset, limit int) (int64, *[]models.Product, string, error) {
+	q := strings.TrimSpace(rawQ)
+	if q == "" {
+		empty := []models.Product{}
+		return 0, &empty, "", nil
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	return s.Repo.SearchProducts(ctx, q, offset, limit)
+}

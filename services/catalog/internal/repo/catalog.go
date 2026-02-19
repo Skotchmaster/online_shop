@@ -7,6 +7,7 @@ import (
 	"github.com/Skotchmaster/online_shop/services/catalog/internal/transport"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (r *GormRepo) GetProduct(ctx context.Context, id uuid.UUID) (*models.Product, error) {
@@ -77,4 +78,61 @@ func(r *GormRepo) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 
 	return nil
 
+}
+
+func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit int) (int64, *[]models.Product, string, error) {
+	ftsQuerySQL := `(websearch_to_tsquery('russian', unaccent(?)) || websearch_to_tsquery('english', unaccent(?)))`
+	ftsWhere := "search_vector @@ " + ftsQuerySQL
+
+	var totalFTS int64
+	if err := r.DB.WithContext(ctx).
+		Model(&models.Product{}).
+		Where(ftsWhere, q, q).
+		Count(&totalFTS).Error; err != nil {
+		return 0, nil, "cannot count fts results", err
+	}
+
+	if totalFTS > 0 {
+		items := make([]models.Product, 0, limit)
+		orderExpr := clause.Expr{
+			SQL:  "ts_rank_cd(search_vector, "+ftsQuerySQL+") DESC",
+			Vars: []any{q, q},
+		}
+
+		if err := r.DB.WithContext(ctx).
+			Model(&models.Product{}).
+			Where(ftsWhere, q, q).
+			Order(orderExpr).
+			Limit(limit).
+			Offset(offset).
+			Find(&items).Error; err != nil {
+			return 0, nil, "cannot fetch fts results", err
+		}
+
+		return totalFTS, &items, "", nil
+	}
+
+	var totalTrgm int64
+	if err := r.DB.WithContext(ctx).
+		Model(&models.Product{}).
+		Where("name % ? OR description % ?", q, q).
+		Count(&totalTrgm).Error; err != nil {
+		return 0, nil, "cannot count trigram results", err
+	}
+
+	items := make([]models.Product, 0, limit)
+	if err := r.DB.WithContext(ctx).
+		Model(&models.Product{}).
+		Where("name % ? OR description % ?", q, q).
+		Order(clause.Expr{
+			SQL:  "GREATEST(similarity(name, ?), similarity(description, ?)) DESC",
+			Vars: []any{q, q},
+		}).
+		Limit(limit).
+		Offset(offset).
+		Find(&items).Error; err != nil {
+		return 0, nil, "cannot fetch trigram results", err
+	}
+
+	return totalTrgm, &items, "", nil
 }

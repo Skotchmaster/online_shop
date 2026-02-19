@@ -21,6 +21,7 @@ func Register(e *echo.Echo, d *Deps) {
 	authMW := middleware.NewAutoRefreshMiddleware(d.JWTSecret, d.AuthClient)
 
 	products := e.Group("/catalog/products")
+	products.GET("/search", d.CatalogHandler.SearchProducts)
 	products.GET("", d.CatalogHandler.GetProducts)
 	products.GET("/:id", d.CatalogHandler.GetProduct)
 

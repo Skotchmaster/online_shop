@@ -121,7 +121,7 @@ func (h *CatalogHTTP) PatchProduct(c echo.Context) error {
 		}
 		if errors.Is(err,  service.ErrValidation){
 			l.Warn("product_patch_error", "status", 400, "reason", "invalid body", "error", err.Error())
-			return echo.NewHTTPError(http.StatusNotFound, "invalid body")
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 		} else {
 			l.Error("product_patch_error", "status", 500, "reason", "cannot add product to db", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "cannot add product to db")
@@ -153,4 +153,34 @@ func (h *CatalogHTTP) DeleteProduct(c echo.Context) error {
 
 	l.Info("delete_product_success")
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *CatalogHTTP) SearchProducts(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "product.search_products")
+
+	q := c.QueryParam("q")
+	page := util.ParseIntDefault(c.QueryParam("page"), 1)
+	size := util.ParseIntDefault(c.QueryParam("size"), util.DefaultPageSize)
+	offset, limit := util.Calculate(page, size)
+
+	total, items, errResp, err := h.Svc.SearchProducts(ctx, q, offset, limit)
+	if err != nil {
+		l.Error("search_products_error", "status", 500, "reason", errResp, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, errResp)
+	}
+
+	l.Info("search_products_success")
+	return c.JSON(http.StatusOK, map[string]any{
+		"data": items,
+		"meta": map[string]any{
+			"query":       q,
+			"page":        page,
+			"size":        limit,
+			"total":       total,
+			"total_pages": (total + int64(limit) - 1) / int64(limit),
+			"has_prev":    page > 1,
+			"has_next":    int64(offset+limit) < total,
+		},
+	})
 }
