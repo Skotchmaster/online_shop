@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	pkg_hash "github.com/Skotchmaster/online_shop/pkg/hash"
 	jwthelp "github.com/Skotchmaster/online_shop/pkg/jwt"
@@ -14,6 +16,14 @@ import (
 	"github.com/Skotchmaster/online_shop/pkg/tokens"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/models"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/repo"
+)
+
+var (
+	ErrValidation   = errors.New("validation")   // 400
+	ErrInvalidRefreshToken = errors.New("invalid refresh token")
+	ErrForbidden    = errors.New("validation")   // 403
+	ErrNotFound     = errors.New("not found")    // 404
+	ErrConflict     = errors.New("conflict")     // 409
 )
 
 type AuthService struct {
@@ -79,7 +89,7 @@ func (h *AuthService) Register(ctx context.Context, username, password string) e
 		Role:         "user",
 	}
 	
-	if err := h.Repo.UserNotExist(user); err != nil{
+	if err := h.Repo.CreateUserIfNotExists(&user); err != nil{
 		if errors.Is(err, repo.ErrUserAlreadyExist) {
 			l.Error("register_error", "status", 409, "reason", "user already exist")
 			return errors.New("user already exist")
@@ -158,21 +168,30 @@ func(h *AuthService) Refresh(ctx context.Context, refreshToken, accessToken stri
         return nil, errors.New("invalid refresh token")
     }
     
-    access_claims, err := tokens.AccessClaimsFromToken(accessToken, h.Repo.JWTSecret)
-    if err != nil {
-        l.Warn("refresh_failed", "status", 401, "reason", "invalid access token", "error", err)
-        return nil, errors.New("invalid access token")
-    }
-    
     jti := refresh_claims.ID
     userId := refresh_claims.Subject
-    role := access_claims.Role
+	userUuid, err := uuid.Parse(userId)
+
+	if err != nil {
+		return nil, fmt.Errorf("user id is not uuid: %w", ErrInvalidRefreshToken)
+	}
+
+	user, err := h.Repo.GetUserById(ctx, userUuid)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("user with this id dont exist: %w", ErrInvalidRefreshToken)
+		} else {
+			l.Warn("refresh_failed", "status", 500, "reason", "user with this id dont exist", "error", err)
+			return nil, fmt.Errorf("internal error")
+		}
+	}
+    role := user.Role
     
     accessExp := time.Now().Add(time.Minute * 15)
     accessTokenNew, err := h.CreateAccessToken(role, userId, accessExp)
     if err != nil {
         l.Error("refresh_failed", "status", 500, "reason", "failed to create access token", "error", err)
-        return nil, errors.New("internal server error")
+        return nil, fmt.Errorf("failed to create access token")
     }
 
     refreshExp := time.Now().Add(7 * 24 * time.Hour)
