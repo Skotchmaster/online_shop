@@ -18,18 +18,18 @@ func (r *GormRepo) GetProduct(ctx context.Context, id uuid.UUID) (*models.Produc
 	return &product, nil
 }
 
-func(r *GormRepo) GetProducts(ctx context.Context, offset, limit int) (int64, *[]models.Product, string, error) {
+func(r *GormRepo) GetProducts(ctx context.Context, offset, limit int) (int64, *[]models.Product, error) {
 	var total int64
 	if err := r.DB.WithContext(ctx).Model(models.Product{}).Count(&total).Error; err != nil{
-		return 0, nil, "cannot count total", err
+		return 0, nil, err
 	}
 
 	var items []models.Product
 	if err := r.DB.WithContext(ctx).Model(&models.Product{}).Order("id ASC").Offset(offset).Limit(limit).Find(&items).Error; err != nil {
-		return 0, nil, "cannot get products with offset", err
+		return 0, nil, err
 	}
 
-	return total, &items, "", nil
+	return total, &items, nil
 }
 
 func(r *GormRepo) CreateProduct(ctx context.Context, prod *models.Product) (*models.Product, error) {
@@ -80,7 +80,7 @@ func(r *GormRepo) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 
 }
 
-func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit int) (int64, *[]models.Product, string, error) {
+func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit int) (int64, *[]models.Product, error) {
 	ftsQuerySQL := `(websearch_to_tsquery('russian', unaccent(?)) || websearch_to_tsquery('english', unaccent(?)))`
 	ftsWhere := "search_vector @@ " + ftsQuerySQL
 
@@ -89,7 +89,7 @@ func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit i
 		Model(&models.Product{}).
 		Where(ftsWhere, q, q).
 		Count(&totalFTS).Error; err != nil {
-		return 0, nil, "cannot count fts results", err
+		return 0, nil, err
 	}
 
 	if totalFTS > 0 {
@@ -106,10 +106,10 @@ func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit i
 			Limit(limit).
 			Offset(offset).
 			Find(&items).Error; err != nil {
-			return 0, nil, "cannot fetch fts results", err
+			return 0, nil, err
 		}
 
-		return totalFTS, &items, "", nil
+		return totalFTS, &items, nil
 	}
 
 	var totalTrgm int64
@@ -117,7 +117,7 @@ func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit i
 		Model(&models.Product{}).
 		Where("name % ? OR description % ?", q, q).
 		Count(&totalTrgm).Error; err != nil {
-		return 0, nil, "cannot count trigram results", err
+		return 0, nil, err
 	}
 
 	items := make([]models.Product, 0, limit)
@@ -131,8 +131,8 @@ func (r *GormRepo) SearchProducts(ctx context.Context, q string, offset, limit i
 		Limit(limit).
 		Offset(offset).
 		Find(&items).Error; err != nil {
-		return 0, nil, "cannot fetch trigram results", err
+		return 0, nil, err
 	}
 
-	return totalTrgm, &items, "", nil
+	return totalTrgm, &items, nil
 }

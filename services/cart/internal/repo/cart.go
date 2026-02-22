@@ -36,7 +36,7 @@ func (r *GormRepo) AddToCart(ctx context.Context, item *models.CartItem) error {
     })
 }
 
-func (r *GormRepo) DeleteOneFromCart(ctx context.Context, productID uuid.UUID, userID uuid.UUID) (bool, models.CartItem, error) {
+func (r *GormRepo) DeleteOneFromCart(ctx context.Context, productID uuid.UUID, userID uuid.UUID) (bool, *models.CartItem, error) {
 	var item models.CartItem
 	deleted := false
 
@@ -59,9 +59,9 @@ func (r *GormRepo) DeleteOneFromCart(ctx context.Context, productID uuid.UUID, u
 		}
 		return nil
 	}); err != nil{
-		return  false, models.CartItem{}, err
+		return  false, nil, err
 	}
-	return deleted, item, nil
+	return deleted, &item, nil
 }
 
 func (r *GormRepo) DeleteAllFromCart(ctx context.Context, userID uuid.UUID) error {

@@ -14,7 +14,7 @@ import (
 
 var (
 	ErrValidation = errors.New("validation") // 400
-	ErrForbidden  = errors.New("validation") // 403
+	ErrForbidden  = errors.New("forbidden")  // 403
 	ErrNotFound   = errors.New("not found")  // 404
 	ErrConflict   = errors.New("conflict")   // 409
 )
@@ -91,7 +91,7 @@ func (svc *OrderService) ListOrders(ctx context.Context, userID uuid.UUID, limit
 func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
 	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound){
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -105,6 +105,9 @@ func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID, userID uuid
 func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
 	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		} 
 		return nil, err
 	}
 
@@ -118,6 +121,10 @@ func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status m
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
+		} else {
+			if errors.Is(err, repo.ErrOrderStatusConflict) {
+				return nil, ErrConflict
+			}
 		}
 		return nil, err
 	}
@@ -128,6 +135,9 @@ func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, status m
 func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*models.Order, error) {
 	order, err := svc.Repo.GetOrder(ctx, id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 

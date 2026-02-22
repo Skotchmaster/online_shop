@@ -10,7 +10,6 @@ import (
 	"github.com/Skotchmaster/online_shop/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	"gorm.io/gorm"
 )
 type CatalogHTTP struct {
 	Svc *service.CatalogService
@@ -23,15 +22,15 @@ func (h *CatalogHTTP) GetProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := uuid.Parse(idParam)
 	if err != nil {
-		l.Warn("get_product_failed", "status", 400, "reason", "uuid is not intenger", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "uuid is not uuid")
+		l.Warn("get_product_failed", "status", 400, "reason", "invalid product id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid product id")
 	}
 
 	product, err := h.Svc.GetProduct(ctx, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			l.Warn("get_product_failed", "status", 404, "reason", "product with this id dont exist", "error", err)
-			return echo.NewHTTPError(http.StatusNotFound, "product with this id dont exist")
+		if errors.Is(err, service.ErrNotFound) {
+			l.Warn("get_product_failed", "status", 404, "reason", "product not found", "error", err)
+			return echo.NewHTTPError(http.StatusNotFound, "product not found")
 		}else {
 			l.Error("get_product_failed", "status", 500, "reason", "cannot get product", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "cannot get product")
@@ -50,10 +49,10 @@ func (h *CatalogHTTP) GetProducts(c echo.Context) error {
 
 	offset, limit := util.Calculate(page,size)
 
-	total, items, errResp, err := h.Svc.GetProducts(ctx, offset, limit)
+	total, items, err := h.Svc.GetProducts(ctx, offset, limit)
 	if err != nil {
-		l.Error("get_products_error", "status", 500, "reason", errResp, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, errResp)
+		l.Error("get_products_error", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 	}
 
 	l.Info("get_products_success")
@@ -102,8 +101,8 @@ func (h *CatalogHTTP) PatchProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := uuid.Parse(idParam)
 	if err != nil {
-		l.Warn("product_patch_error", "status", 400, "reason", "id not a uuid", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "id not a uuid")
+		l.Warn("product_patch_error", "status", 400, "reason", "invalid product id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid product id")
 	}
 
 	var req transport.PatchProductRequest
@@ -115,12 +114,12 @@ func (h *CatalogHTTP) PatchProduct(c echo.Context) error {
 
 	prod, err := h.Svc.PatchProduct(ctx, req, id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound){
-			l.Warn("product_patch_error", "status", 404, "reason", "cannot find product in db", "error", err)
-			return echo.NewHTTPError(http.StatusNotFound, "cannot find product in db")
+		if errors.Is(err, service.ErrNotFound){
+			l.Warn("product_patch_error", "status", 404, "reason", "product not found", "error", err)
+			return echo.NewHTTPError(http.StatusNotFound, "product not found")
 		}
 		if errors.Is(err,  service.ErrValidation){
-			l.Warn("product_patch_error", "status", 400, "reason", "invalid body", "error", err.Error())
+			l.Warn("product_patch_error", "status", 400, "reason", "invalid body", "error", err)
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 		} else {
 			l.Error("product_patch_error", "status", 500, "reason", "cannot add product to db", "error", err)
@@ -128,7 +127,7 @@ func (h *CatalogHTTP) PatchProduct(c echo.Context) error {
 		}
 	}
 
-	l.Info("patch_prosuct_success")
+	l.Info("patch_product_success")
 	return c.JSON(http.StatusOK, prod)
 }
 
@@ -139,11 +138,11 @@ func (h *CatalogHTTP) DeleteProduct(c echo.Context) error {
 	idParam := c.Param("id")
 	id, err := uuid.Parse(idParam)
 	if err != nil {
-		l.Warn("product_delete_error", "status", 400, "reason", "id not an uuid", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "id not an uuid")
+		l.Warn("product_delete_error", "status", 400, "reason", "invalid product id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid product id")
 	}
 	if err := h.Svc.DeleteProduct(ctx, id); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, service.ErrNotFound) {
 			l.Warn("product_delete_error", "status", 404, "reason", "product not found", "error", err)
 			return echo.NewHTTPError(http.StatusNotFound, "product not found")
 		}
@@ -164,10 +163,10 @@ func (h *CatalogHTTP) SearchProducts(c echo.Context) error {
 	size := util.ParseIntDefault(c.QueryParam("size"), util.DefaultPageSize)
 	offset, limit := util.Calculate(page, size)
 
-	total, items, errResp, err := h.Svc.SearchProducts(ctx, q, offset, limit)
+	total, items, err := h.Svc.SearchProducts(ctx, q, offset, limit)
 	if err != nil {
-		l.Error("search_products_error", "status", 500, "reason", errResp, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, errResp)
+		l.Error("search_products_error", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 	}
 
 	l.Info("search_products_success")

@@ -7,9 +7,9 @@ import (
 	"github.com/Skotchmaster/online_shop/pkg/logging"
 	"github.com/Skotchmaster/online_shop/services/cart/internal/models"
 	"github.com/Skotchmaster/online_shop/services/cart/internal/service"
+	"github.com/Skotchmaster/online_shop/services/cart/internal/transport"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	"gorm.io/gorm"
 )
 
 type CartHTTP struct {
@@ -37,13 +37,13 @@ func (h *CartHTTP) GetCart(c echo.Context) error {
 	
 	userID, err := h.GetID(c)
 	if err != nil{
-		l.Error("get_cart_error", "status", 401, "error", err)
+		l.Error("get_cart_error", "status", 401, "reason", "unauthorized", "error", err)
 		return c.JSON(http.StatusUnauthorized, "unauthorized")
 	}
 
 	items, err := h.Svc.GetCart(ctx, userID)
 	if err != nil {
-		l.Error("get_cart_error", "status", 500, "error", err)
+		l.Error("get_cart_error", "status", 500, "reason", "internal server error", "error", err)
 		return c.JSON(http.StatusInternalServerError, "internal server error")
 	}
 
@@ -57,7 +57,7 @@ func (h *CartHTTP) AddToCart(c echo.Context) error {
 
 	userID, err := h.GetID(c)
 	if err != nil {
-		l.Error("add_cart_error", "status", 401, "error", err)
+		l.Error("add_cart_error", "status", 401, "reason", "unauthorized", "error", err)
 		return c.JSON(http.StatusUnauthorized, "unauthorized")
 	}
 
@@ -67,14 +67,8 @@ func (h *CartHTTP) AddToCart(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		l.Warn("add_to_cart_error", "status", 400, "error", err)
+		l.Warn("add_to_cart_error", "status", 400, "reason", "invalid body", "error", err)
 		return c.JSON(http.StatusBadRequest, "invalid body")
-
-	}
-
-	if req.Quantity == 0 || req.ProductID == uuid.Nil {
-		l.Warn("add_to_cart_error", "status", 400)
-		return c.JSON(http.StatusBadRequest, "quantity>0 and product_id required")
 	}
 
 	item := models.CartItem{
@@ -83,7 +77,11 @@ func (h *CartHTTP) AddToCart(c echo.Context) error {
 		Quantity: req.Quantity,
 	}
 	if err := h.Svc.AddToCart(ctx, &item); err != nil {
-		l.Error("add_to_cart_error", "status", 500, "error", err)
+		if errors.Is(err, service.ErrValidation) {
+			l.Warn("add_to_cart_error", "status", 400, "reason", "invalid body", "error", err)
+			return c.JSON(http.StatusBadRequest, "invalid body")
+		}
+		l.Error("add_to_cart_error", "status", 500, "reason", "internal error", "error", err)
 		return c.JSON(http.StatusInternalServerError, "internal error")
 	}
 
@@ -97,7 +95,7 @@ func (h *CartHTTP) DeleteOneFromCart(c echo.Context) error {
 
     userID, err := h.GetID(c)
     if err != nil {
-        l.Error("delete_one_from_cart_error", "status", 401, "error", err)
+        l.Error("delete_one_from_cart_error", "status", 401, "reason", "unauthorized", "error", err)
         return c.JSON(http.StatusUnauthorized, "unauthorized")
     }
 
@@ -105,27 +103,37 @@ func (h *CartHTTP) DeleteOneFromCart(c echo.Context) error {
         ProductID uuid.UUID `json:"product_id"`
     }
     if err := c.Bind(&req); err != nil {
-        l.Warn("delete_one_from_cart_error", "status", 400, "error", err)
+        l.Warn("delete_one_from_cart_error", "status", 400, "reason", "invalid body", "error", err)
         return c.JSON(http.StatusBadRequest, "invalid body")
-    }
-    if req.ProductID == uuid.Nil {
-        return c.JSON(http.StatusBadRequest, "product_id required")
     }
 
     deleted, item, err := h.Svc.DeleteOneFromCart(ctx, req.ProductID, userID)
     if err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            l.Warn("delete_one_from_cart_not_found", "status", 404, "error", err)
+        if errors.Is(err, service.ErrNotFound) {
+            l.Warn("delete_one_from_cart_error", "status", 404, "reason", "item not found", "error", err)
             return c.JSON(http.StatusNotFound, "item not found")
-        }
-        l.Error("delete_one_from_cart_error", "status", 500, "error", err)
+        } else {
+			if errors.Is(err, service.ErrValidation) {
+            l.Warn("delete_one_from_cart_error", "status", 400, "reason", "invalid body", "error", err)
+            return c.JSON(http.StatusBadRequest, "invalid body")
+			}
+		}
+        l.Error("delete_one_from_cart_error", "status", 500, "reason", "internal error", "error", err)
         return c.JSON(http.StatusInternalServerError, "internal error")
     }
 
-    if deleted {
-        return c.JSON(http.StatusOK, "item deleted successfully")
-    }
-    return c.JSON(http.StatusOK, item)
+	var resp transport.DeleteOneFromCartResponse
+	
+	if deleted {
+		resp.ProductID = req.ProductID
+		resp.Deleted = deleted
+		resp.Quantity = 0
+	} else {
+		resp.ProductID = item.ProductID
+		resp.Deleted = deleted
+		resp.Quantity = item.Quantity
+	}
+    return c.JSON(http.StatusOK, resp)
 }
 
 
@@ -135,12 +143,12 @@ func (h *CartHTTP) DeleteAllFromCart(c echo.Context) error {
 
 	userID, err := h.GetID(c)
 	if err != nil {
-		l.Error("delete_all_from_cart_error", "status", 401, "error", err)
+		l.Error("delete_all_from_cart_error", "status", 401, "reason", "unauthorized", "error", err)
 		return c.JSON(http.StatusUnauthorized, "unauthorized")
 	}
 
 	if err := h.Svc.DeleteAllFromCart(ctx, userID); err != nil {
-		l.Error("delete_all_from_cart_cart_error", "status", 500, "error", err)
+		l.Error("delete_all_from_cart_cart_error", "status", 500, "reason", "internal error", "error", err)
 		return c.JSON(http.StatusInternalServerError, "internal error")
 	}
 

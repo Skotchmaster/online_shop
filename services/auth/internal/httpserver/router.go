@@ -9,14 +9,14 @@ import (
 
 type Deps struct {
 	AuthHandler *AuthHTTP
-	JWT_Secret string
+	JWT_Secret []byte
 }
 
 func Register(e *echo.Echo, d *Deps) {
 	e.GET("/health/live", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 	e.GET("/health/ready", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
 
-	authMw := middleware.NewSimpleAuth([]byte(d.JWT_Secret))
+	authMw := middleware.NewSimpleAuth(d.JWT_Secret)
 
 	e.POST("/register", d.AuthHandler.Register)
 	e.POST("/login", d.AuthHandler.Login)

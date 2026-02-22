@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -36,10 +37,15 @@ type RefreshResponse struct {
 }
 
 func (c *Client) RefreshTokens(ctx context.Context, refreshToken, accessToken string) (*RefreshResponse, error) {
+	refreshURL, err := url.JoinPath(c.baseURL, "refresh")
+	if err != nil {
+		return nil, fmt.Errorf("build refresh url: %w", err)
+	}
+	
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		c.baseURL+"auth/refresh",
+		refreshURL,
 		nil,
 	)
 	if err != nil {

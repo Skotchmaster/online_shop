@@ -1,10 +1,11 @@
 package httpserver
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/Skotchmaster/online_shop/pkg/logging"
 	jwthelp "github.com/Skotchmaster/online_shop/pkg/jwt"
+	"github.com/Skotchmaster/online_shop/pkg/logging"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/service"
 	"github.com/labstack/echo/v4"
 )
@@ -16,21 +17,28 @@ type AuthHTTP struct {
 func (h *AuthHTTP) Register(c echo.Context) error {
 	ctx := c.Request().Context()
 	l := logging.FromContext(ctx).With("handler", "auth_register")
+
 	var req struct {
-		Username string
-		Password string
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 
 	if err := c.Bind(&req); err != nil {
-		l.Warn("register_error", "status", 400, "error", err)
+		l.Warn("register_failed", "status", 400, "reason", "invalid body", "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 
 	if err := h.Svc.Register(ctx, req.Username, req.Password); err != nil {
-		l.Warn("register_failed", "error", err)
-		if err.Error() == "user already exist" {
-			return echo.NewHTTPError(http.StatusConflict, "user already exists")
+		if errors.Is(err, service.ErrValidation) {
+			l.Warn("register_failed", "status", 400, "reason", "invalid credentials", "error", err)
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid credentials")
+		} else {
+			if errors.Is(err, service.ErrConflict) {
+				l.Warn("register_failed", "status", 409, "reason", "user already exist", "error", err)
+				return echo.NewHTTPError(http.StatusConflict, "user already exist")
+			}
 		}
+		l.Error("register_failed", "status", 500, "reason", "registration failed", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "registration failed")
 	}
 
@@ -50,14 +58,23 @@ func (h *AuthHTTP) Login(c echo.Context) error {
 	}
 
 	if err := c.Bind(&req); err != nil {
-		l.Warn("login_error", "status", 400, "error", err)
+		l.Warn("login_failed", "status", 400, "reason", "invalid body", "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
 
 	res, err := h.Svc.Login(ctx, req.Username, req.Password)
 	if err != nil {
-		l.Warn("login_failed", "error", err)
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid username or password")
+		if errors.Is(err, service.ErrUnauthorized){
+			l.Warn("login_failed", "status", 401, "reason", "invalid username or password", "error", err)
+			return echo.NewHTTPError(http.StatusUnauthorized, "invalid username or password")
+		}else {
+			if errors.Is(err, service.ErrValidation){
+				l.Warn("login_failed", "status", 400, "reason", "validation error", "error", err)
+				return echo.NewHTTPError(http.StatusBadRequest, "validation error")
+			}
+		}
+		l.Error("login_failed", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 	}
 
 	accessCookie := jwthelp.CreateCookie("accessToken", res.AccessToken, "/", res.AccessExp)
@@ -88,8 +105,8 @@ func (h *AuthHTTP) LogOut(c echo.Context) error {
         c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
         c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
         
-        l.Error("logout_failed", "status", 500, "error", err)
-        return echo.NewHTTPError(http.StatusInternalServerError, "logout failed")
+        l.Error("logout_failed", "status", 500, "reason", "internal error", "error", err)
+        return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
     }
 
     c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
@@ -111,18 +128,16 @@ func (h *AuthHTTP) Refresh(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "missing refresh token")
 	}
 
-	accessToken, err := c.Cookie("accessToken")
-	if err != nil {
-		l.Warn("refresh_failed", "status", 401, "reason", "missing access token", "error", err)
-		return echo.NewHTTPError(http.StatusUnauthorized, "missing access token")
-	}
-
-	res, err := h.Svc.Refresh(ctx, refreshToken.Value, accessToken.Value)
+	res, err := h.Svc.Refresh(ctx, refreshToken.Value)
 	if err != nil {
 		c.SetCookie(jwthelp.DeleteCookie("refreshToken", "/"))
 		c.SetCookie(jwthelp.DeleteCookie("accessToken", "/"))
-		l.Warn("refresh_failed", "status", 401, "error", err)
-		return echo.NewHTTPError(http.StatusUnauthorized, "refresh failed")
+		if errors.Is(err, service.ErrInvalidRefreshToken) {
+			l.Warn("refresh_failed", "status", 401, "reason", "refresh failed", "error", err)
+			return echo.NewHTTPError(http.StatusUnauthorized, "refresh failed")
+		} 
+		l.Error("refresh_failed", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
 	}
 	accessCookie := jwthelp.CreateCookie("accessToken", res.AccessToken, "/", res.AccessExp)
 	c.SetCookie(accessCookie)
@@ -130,12 +145,7 @@ func (h *AuthHTTP) Refresh(c echo.Context) error {
 	refreshCookie := jwthelp.CreateCookie("refreshToken", res.RefreshToken, "/", res.RefreshExp)
 	c.SetCookie(refreshCookie)
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"access_token":  res.AccessToken,
-		"refresh_token": res.RefreshToken,
-		"access_exp":    res.AccessExp.Unix(),
-		"refresh_exp":   res.RefreshExp.Unix(),
-		"is_admin":      res.IsAdmin,
-	})
+	l.Info("refresh_successful")
+	return c.JSON(http.StatusOK, res)
 }
  

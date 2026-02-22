@@ -27,7 +27,7 @@ func must(v string, name string) string {
 func Load() *Config {
 	cfg := &Config{
 		AuthURL:    must(os.Getenv("AUTH_URL"), "AUTH_URL"),
-		JWTSecret:  []byte(must(os.Getenv("JWT_HS256_SECRET"), "JWT_HS256_SECRET")),
+		JWTSecret:  []byte(must(os.Getenv("JWT_SECRET"), "JWT_SECRET")),
 	}
 	return cfg
 }

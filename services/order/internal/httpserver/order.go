@@ -97,8 +97,8 @@ func(h *OrderHTTP) GetOrder(c echo.Context) error {
 	idstr := c.Param("id")
 	id, err := uuid.Parse(idstr)
 	if err != nil {
-		l.Error("get_order_error", "status", 400, "reason", "id is not uuid", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "id is not uuid")
+		l.Error("get_order_error", "status", 400, "reason", "invalid order id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid order id")
 	}
 
 	userID, err := h.GetID(c)
@@ -128,16 +128,16 @@ func(h *OrderHTTP) UpdateOrder(c echo.Context) error {
 	idstr := c.Param("id")
 	id, err := uuid.Parse(idstr)
 	if err != nil {
-		l.Error("update_order_error", "status", 400, "reason", "id is not uuid", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "id is not uuid")
+		l.Error("update_order_error", "status", 400, "reason", "invalid order id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid order id")
 	}
 
 	var req struct {
 		Status models.OrderStatus `json:"status"`
 	}
 	if err := c.Bind(&req); err != nil {
-		l.Error("update_order_error", "status", 400, "reason", "status is not alowded", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "status is not alowded")
+		l.Error("update_order_error", "status", 400, "reason", "invalid status", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid status")
 	}
 
 	order, err := h.Svc.UpdateOrder(ctx, id, req.Status)
@@ -147,8 +147,8 @@ func(h *OrderHTTP) UpdateOrder(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, "record not found")
 		} else {
 			if errors.Is(err, service.ErrConflict) {
-				l.Error("update_order_error", "status", 409, "reason", "cant skip status transicion", "error", err)
-				return echo.NewHTTPError(http.StatusNotFound, "cant skip status transicion")
+				l.Error("update_order_error", "status", 409, "reason", "cant skip status transaction", "error", err)
+				return echo.NewHTTPError(http.StatusConflict, "cant skip status transaction")
 			}
 		}
 		l.Error("update_order_error", "status", 500, "reason", "internal error", "error", err)
@@ -166,13 +166,13 @@ func (h *OrderHTTP) CancelOrder(c echo.Context) error {
 	idstr := c.Param("id")
 	id, err := uuid.Parse(idstr)
 	if err != nil {
-		l.Error("cancel_order_error", "status", 400, "reason", "id is not uuid", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "id is not uuid")
+		l.Error("cancel_order_error", "status", 400, "reason", "invalid order id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid order id")
 	}
 
 	userID, err := h.GetID(c)
 	if err != nil {
-		l.Warn("cancel_orders_error", "status", 401, "reason", "unauthorized", "error", err)
+		l.Warn("cancel_order_error", "status", 401, "reason", "unauthorized", "error", err)
 		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized")
 	}	
 
@@ -183,12 +183,12 @@ func (h *OrderHTTP) CancelOrder(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, "record not found")
 		} else {
 			if errors.Is(err, service.ErrConflict) {
-				l.Error("cancel_order_error", "status", 409, "reason", "you cant cancel order by this moment", "error", err)
-				return echo.NewHTTPError(http.StatusNotFound, "you cant cancel order by this moment")	
+				l.Error("cancel_order_error", "status", 409, "reason", "you can't cancel this order at this stage", "error", err)
+				return echo.NewHTTPError(http.StatusConflict, "you can't cancel this order at this stage")	
 			} else {
-				if errors.Is(err, service.ErrConflict) {
+				if errors.Is(err, service.ErrForbidden) {
 					l.Error("cancel_order_error", "status", 403, "reason", "you dont have enough rights to see this page", "error", err)
-					return echo.NewHTTPError(http.StatusNotFound, "you dont have enough rights to see this page")	
+					return echo.NewHTTPError(http.StatusForbidden, "you dont have enough rights to see this page")	
 				}
 			}
 		} 
