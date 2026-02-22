@@ -146,12 +146,6 @@ func (h *AuthHTTP) Refresh(c echo.Context) error {
 	c.SetCookie(refreshCookie)
 
 	l.Info("refresh_successful")
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"access_token":  res.AccessToken,
-		"refresh_token": res.RefreshToken,
-		"access_exp":    res.AccessExp.Unix(),
-		"refresh_exp":   res.RefreshExp.Unix(),
-		"is_admin":      res.IsAdmin,
-	})
+	return c.JSON(http.StatusOK, res)
 }
  

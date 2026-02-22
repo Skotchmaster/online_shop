@@ -15,6 +15,7 @@ import (
 	"github.com/Skotchmaster/online_shop/pkg/tokens"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/models"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/repo"
+	"github.com/Skotchmaster/online_shop/services/auth/internal/transport"
 )
 
 var (
@@ -27,14 +28,6 @@ var (
 
 type AuthService struct {
 	Repo repo.GormRepo
-}
-
-type LoginResult struct {
-	AccessToken  string
-	RefreshToken string
-	AccessExp    time.Time
-	RefreshExp   time.Time
-	IsAdmin      bool
 }
 
 func (h *AuthService) CreateAccessToken(role, id string, accessExp time.Time) (string, error) {
@@ -102,7 +95,7 @@ func (h *AuthService) Register(ctx context.Context, username, password string) e
 	return nil
 }
 
-func (h *AuthService) Login(ctx context.Context, username, password string) (*LoginResult, error) {
+func (h *AuthService) Login(ctx context.Context, username, password string) (*transport.LoginResult, error) {
 	if username == "" {
 		return nil, fmt.Errorf("username must not be empty: %w", ErrValidation)
 	}
@@ -134,7 +127,7 @@ func (h *AuthService) Login(ctx context.Context, username, password string) (*Lo
 		return nil, fmt.Errorf("internal server error: %w", ErrInternal)
 	}
 
-	return &LoginResult{
+	return &transport.LoginResult{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		AccessExp:    accessExp,
@@ -156,7 +149,7 @@ func (h *AuthService) LogOut(ctx context.Context, refreshToken string) error {
 	return nil
 }
 
-func (h *AuthService) Refresh(ctx context.Context, refreshToken string) (*LoginResult, error) {
+func (h *AuthService) Refresh(ctx context.Context, refreshToken string) (*transport.LoginResult, error) {
 	refresh_claims, err := tokens.RefreshClaimsFromToken(refreshToken, h.Repo.RefreshSecret)
 	if err != nil {
 		return nil, ErrInvalidRefreshToken
@@ -208,7 +201,7 @@ func (h *AuthService) Refresh(ctx context.Context, refreshToken string) (*LoginR
 		return nil, fmt.Errorf("failed to rotate refresh token with jti: %s with error: %w", jti, err)
 	}
 
-	return &LoginResult{
+	return &transport.LoginResult{
 		AccessToken:  accessTokenNew,
 		RefreshToken: refreshTokenNew,
 		AccessExp:    accessExp,
