@@ -14,9 +14,9 @@ import (
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrUserAlreadyExist = errors.New("user already exist")
 
-func (r *GormRepo) UserExist(username, password string) (*models.User, error) {
+func (r *GormRepo) UserExist(ctx context.Context, username, password string) (*models.User, error) {
 	var user models.User
-	if err := r.DB.Where("username = ?", username).First(&user).Error; err != nil {
+	if err := r.DB.WithContext(ctx).Where("username = ?", username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound){
 			return nil, ErrInvalidCredentials
 		}
@@ -28,8 +28,8 @@ func (r *GormRepo) UserExist(username, password string) (*models.User, error) {
 	return &user, nil
 }
 
-func (r *GormRepo) CreateUserIfNotExists(u *models.User) error {
-    tx := r.DB.Where("username = ?", u.Username).FirstOrCreate(u)
+func (r *GormRepo) CreateUserIfNotExists(ctx context.Context, u *models.User) error {
+    tx := r.DB.WithContext(ctx).Where("username = ?", u.Username).FirstOrCreate(u)
     if tx.Error != nil {
         return tx.Error
     }
@@ -40,8 +40,8 @@ func (r *GormRepo) CreateUserIfNotExists(u *models.User) error {
 }
 
 
-func (r *GormRepo) LogOut(refreshtoken string) error {
-	result := r.DB.Model(&models.RefreshToken{}).
+func (r *GormRepo) LogOut(ctx context.Context, refreshtoken string) error {
+	result := r.DB.WithContext(ctx).Model(&models.RefreshToken{}).
 		Where("token = ?", jwthelp.Sha256Hex(refreshtoken)).
 		Update("revoked", true)
 	return result.Error

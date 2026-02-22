@@ -46,6 +46,7 @@ func main() {
 
 	httpserver.Register(e, &httpserver.Deps{
 		AuthHandler: authHandler,
+		JWT_Secret: cfg.JWTSecret,
 	})
 
 	go func() {

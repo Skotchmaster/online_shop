@@ -12,22 +12,21 @@ import (
 
 	pkg_hash "github.com/Skotchmaster/online_shop/pkg/hash"
 	jwthelp "github.com/Skotchmaster/online_shop/pkg/jwt"
-	"github.com/Skotchmaster/online_shop/pkg/logging"
 	"github.com/Skotchmaster/online_shop/pkg/tokens"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/models"
 	"github.com/Skotchmaster/online_shop/services/auth/internal/repo"
 )
 
 var (
-	ErrValidation   = errors.New("validation")   // 400
+	ErrValidation          = errors.New("validation")
+	ErrUnauthorized        = errors.New("unauthorized")
 	ErrInvalidRefreshToken = errors.New("invalid refresh token")
-	ErrForbidden    = errors.New("validation")   // 403
-	ErrNotFound     = errors.New("not found")    // 404
-	ErrConflict     = errors.New("conflict")     // 409
+	ErrConflict            = errors.New("conflict")
+	ErrInternal            = errors.New("internal error")
 )
 
 type AuthService struct {
-	Repo     repo.GormRepo
+	Repo repo.GormRepo
 }
 
 type LoginResult struct {
@@ -38,7 +37,7 @@ type LoginResult struct {
 	IsAdmin      bool
 }
 
-func(h *AuthService) CreateAccessToken(role, id string, accessExp time.Time) (string, error) {
+func (h *AuthService) CreateAccessToken(role, id string, accessExp time.Time) (string, error) {
 	accessClaims := tokens.AccessClaims{
 		Role: role,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -56,7 +55,7 @@ func(h *AuthService) CreateAccessToken(role, id string, accessExp time.Time) (st
 	return accessToken, nil
 }
 
-func(h *AuthService) CreateRefreshToken(id string, refreshExp time.Time) (string, error) {
+func (h *AuthService) CreateRefreshToken(id string, refreshExp time.Time) (string, error) {
 	jti := jwthelp.NewJTI()
 	refreshClaims := tokens.RefreshClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -76,60 +75,63 @@ func(h *AuthService) CreateRefreshToken(id string, refreshExp time.Time) (string
 }
 
 func (h *AuthService) Register(ctx context.Context, username, password string) error {
-	l := logging.FromContext(ctx).With("svc", "auth.register")
+	if username == "" {
+		return fmt.Errorf("username must not be empty: %w", ErrValidation)
+	}
+	if password == "" {
+		return fmt.Errorf("password must not be empty: %w", ErrValidation)
+	}
 
 	pwHash, err := pkg_hash.HashPassword(password)
 	if err != nil {
-		l.Error("register_error", "status", 500, "reason", "cannot hash the password", "error", err)
-		return err
+		return fmt.Errorf("cannot hash the password: %w", ErrInternal)
 	}
 	user := models.User{
 		Username:     username,
 		PasswordHash: string(pwHash),
 		Role:         "user",
 	}
-	
-	if err := h.Repo.CreateUserIfNotExists(&user); err != nil{
+
+	if err := h.Repo.CreateUserIfNotExists(ctx, &user); err != nil {
 		if errors.Is(err, repo.ErrUserAlreadyExist) {
-			l.Error("register_error", "status", 409, "reason", "user already exist")
-			return errors.New("user already exist")
+			return fmt.Errorf("user already exist: %w", ErrConflict)
 		} else {
-			l.Error("register_error", "status", 500, "reason", "internal Server Error", "error", err)
-			return errors.New("internal server error")
+			return fmt.Errorf("internal server error: %w", ErrInternal)
 		}
 	}
 	return nil
 }
 
 func (h *AuthService) Login(ctx context.Context, username, password string) (*LoginResult, error) {
-	l := logging.FromContext(ctx).With("svc", "auth.login", "username", username)
-	user, err := h.Repo.UserExist(username, password)
+	if username == "" {
+		return nil, fmt.Errorf("username must not be empty: %w", ErrValidation)
+	}
+	if password == "" {
+		return nil, fmt.Errorf("password must not be empty: %w", ErrValidation)
+	}
+
+	user, err := h.Repo.UserExist(ctx, username, password)
 	if err != nil {
 		if errors.Is(err, repo.ErrInvalidCredentials) {
-			l.Warn("login failed", "status", 422, "reason", "invalid username or password")
-			return nil, errors.New("invalid username or password")
+			return nil, fmt.Errorf("invalid username or password: %w", ErrUnauthorized)
 		}
-		l.Warn("login failed", "status", 500, "error", err)
-		return nil, errors.New("internal Server error")
+		return nil, fmt.Errorf("internal server error: %w", ErrInternal)
 	}
 
 	accessExp := time.Now().Add(time.Minute * 15)
 	accessToken, err := h.CreateAccessToken(user.Role, user.ID.String(), accessExp)
 	if err != nil {
-		l.Warn("login failed", "status", 500, "error", err)
-		return nil, errors.New("internal Server error")
+		return nil, fmt.Errorf("internal server error: %w", ErrInternal)
 	}
 
 	refreshExp := time.Now().Add(7 * 24 * time.Hour)
 	refreshToken, err := h.CreateRefreshToken(user.ID.String(), refreshExp)
 	if err != nil {
-		l.Warn("login failed", "status", 500, "error", err)
-		return nil, errors.New("internal Server error")
+		return nil, fmt.Errorf("internal server error: %w", ErrInternal)
 	}
 
-	if err := h.Repo.AddRefreshToDB(refreshToken); err != nil {
-		l.Error("internal error", "error", err)
-		return nil, errors.New("internal Server error")
+	if err := h.Repo.AddRefreshToDB(ctx, refreshToken); err != nil {
+		return nil, fmt.Errorf("internal server error: %w", ErrInternal)
 	}
 
 	return &LoginResult{
@@ -143,33 +145,25 @@ func (h *AuthService) Login(ctx context.Context, username, password string) (*Lo
 }
 
 func (h *AuthService) LogOut(ctx context.Context, refreshToken string) error {
-    l := logging.FromContext(ctx).With("svc", "auth.logout")
-    
-    if refreshToken == "" {
-        l.Warn("logout_skipped", "reason", "no refresh token provided")
-        return nil
-    }
+	if refreshToken == "" {
+		return nil
+	}
 
-    if err := h.Repo.LogOut(refreshToken); err != nil {
-        l.Error("logout_failed", "status", 500, "reason", "failed to revoke refresh token", "error", err)
-        return errors.New("internal server error")
-    }
-    
-    l.Info("logout_successful")
-    return nil
+	if err := h.Repo.LogOut(ctx, refreshToken); err != nil {
+		return fmt.Errorf("internal error: %w", err)
+	}
+
+	return nil
 }
 
-func(h *AuthService) Refresh(ctx context.Context, refreshToken, accessToken string) (*LoginResult, error) {
-    l := logging.FromContext(ctx).With("svc", "auth.refresh")
-    
-    refresh_claims, err := tokens.RefreshClaimsFromToken(refreshToken, h.Repo.RefreshSecret)
-    if err != nil {
-        l.Warn("refresh_failed", "status", 401, "reason", "invalid refresh token", "error", err)
-        return nil, errors.New("invalid refresh token")
-    }
-    
-    jti := refresh_claims.ID
-    userId := refresh_claims.Subject
+func (h *AuthService) Refresh(ctx context.Context, refreshToken string) (*LoginResult, error) {
+	refresh_claims, err := tokens.RefreshClaimsFromToken(refreshToken, h.Repo.RefreshSecret)
+	if err != nil {
+		return nil, ErrInvalidRefreshToken
+	}
+
+	jti := refresh_claims.ID
+	userId := refresh_claims.Subject
 	userUuid, err := uuid.Parse(userId)
 
 	if err != nil {
@@ -181,56 +175,44 @@ func(h *AuthService) Refresh(ctx context.Context, refreshToken, accessToken stri
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("user with this id dont exist: %w", ErrInvalidRefreshToken)
 		} else {
-			l.Warn("refresh_failed", "status", 500, "reason", "user with this id dont exist", "error", err)
-			return nil, fmt.Errorf("internal error")
+			return nil, ErrInternal
 		}
 	}
-    role := user.Role
-    
-    accessExp := time.Now().Add(time.Minute * 15)
-    accessTokenNew, err := h.CreateAccessToken(role, userId, accessExp)
-    if err != nil {
-        l.Error("refresh_failed", "status", 500, "reason", "failed to create access token", "error", err)
-        return nil, fmt.Errorf("failed to create access token")
-    }
+	role := user.Role
 
-    refreshExp := time.Now().Add(7 * 24 * time.Hour)
-    refreshTokenNew, err := h.CreateRefreshToken(userId, refreshExp)
-    if err != nil {
-        l.Error("refresh_failed", "status", 500, "reason", "failed to create refresh token", "error", err)
-        return nil, errors.New("internal server error")
-    }
+	accessExp := time.Now().Add(time.Minute * 15)
+	accessTokenNew, err := h.CreateAccessToken(role, userId, accessExp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create access token: %w", ErrInternal)
+	}
 
-    newRefreshClaims, err := tokens.RefreshClaimsFromToken(refreshTokenNew, h.Repo.RefreshSecret)
-    if err != nil {
-        l.Error("refresh_failed", "status", 500, "reason", "failed to parse new refresh token", "error", err)
-        return nil, errors.New("internal server error")
-    }
+	refreshExp := time.Now().Add(7 * 24 * time.Hour)
+	refreshTokenNew, err := h.CreateRefreshToken(userId, refreshExp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create refresh token: %w", ErrInternal)
+	}
 
-    userID, err := uuid.Parse(userId)
-    if err != nil {
-        l.Error("refresh_failed", "status", 500, "reason", "invalid user id format", "user_id", userId, "error", err)
-        return nil, errors.New("internal server error")
-    }
+	newRefreshClaims, err := tokens.RefreshClaimsFromToken(refreshTokenNew, h.Repo.RefreshSecret)
+	if err != nil {
+		return nil, ErrInternal
+	}
 
-    newRefreshModel := models.RefreshToken{
-        Token:     jwthelp.Sha256Hex(refreshTokenNew),
-        UserID:    userID,
-        ExpiresAt: newRefreshClaims.ExpiresAt.Time.Unix(),
-        JTI:       newRefreshClaims.ID,
-    }
+	newRefreshModel := models.RefreshToken{
+		Token:     jwthelp.Sha256Hex(refreshTokenNew),
+		UserID:    userUuid,
+		ExpiresAt: newRefreshClaims.ExpiresAt.Time.Unix(),
+		JTI:       newRefreshClaims.ID,
+	}
 
-    if err := h.Repo.RotateRefreshToken(jti, newRefreshModel); err != nil {
-        l.Error("refresh_failed", "status", 500, "reason", "failed to rotate refresh token", "jti", jti, "error", err)
-        return nil, errors.New("internal server error")
-    }
+	if err := h.Repo.RotateRefreshToken(ctx, jti, newRefreshModel); err != nil {
+		return nil, fmt.Errorf("failed to rotate refresh token with jti: %s with error: %w", jti, err)
+	}
 
-    l.Info("refresh_successful", "user_id", userId)
-    return &LoginResult{
-        AccessToken:  accessTokenNew,
-        RefreshToken: refreshTokenNew,
-        AccessExp:    accessExp,
-        RefreshExp:   refreshExp,
-        IsAdmin:      role == "admin",
-    }, nil
+	return &LoginResult{
+		AccessToken:  accessTokenNew,
+		RefreshToken: refreshTokenNew,
+		AccessExp:    accessExp,
+		RefreshExp:   refreshExp,
+		IsAdmin:      role == "admin",
+	}, nil
 }
