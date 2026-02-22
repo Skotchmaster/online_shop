@@ -9,7 +9,7 @@ type Product struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	Name        string    `gorm:"not null" json:"name"`
 	Description string    `gorm:"not null" json:"description"`
-	Price       int64   `gorm:"not null" json:"price"`
+	Price       int64     `gorm:"not null" json:"price"`
 	Count       uint      `json:"count"`
 }
 
