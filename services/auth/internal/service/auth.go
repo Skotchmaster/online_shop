@@ -193,11 +193,14 @@ func (h *AuthService) Refresh(ctx context.Context, refreshToken string) (*transp
 	newRefreshModel := models.RefreshToken{
 		Token:     jwthelp.Sha256Hex(refreshTokenNew),
 		UserID:    userUuid,
-		ExpiresAt: newRefreshClaims.ExpiresAt.Time.Unix(),
+		ExpiresAt: newRefreshClaims.ExpiresAt.Time,
 		JTI:       newRefreshClaims.ID,
 	}
 
 	if err := h.Repo.RotateRefreshToken(ctx, jti, newRefreshModel); err != nil {
+		if errors.Is(err, repo.ErrTokenExpiredOrRevoked) {
+			return nil, fmt.Errorf("failed to rotate refresh token with jti: %s with error: %w", jti, ErrInvalidRefreshToken)
+		}
 		return nil, fmt.Errorf("failed to rotate refresh token with jti: %s with error: %w", jti, err)
 	}
 

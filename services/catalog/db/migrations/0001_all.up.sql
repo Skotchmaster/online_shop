@@ -16,11 +16,32 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 ALTER TABLE products
   ADD COLUMN IF NOT EXISTS search_vector tsvector
-  GENERATED ALWAYS AS (
-    setweight(to_tsvector('russian', unaccent(name || ' ' || description)), 'A')
+  DEFAULT ''::tsvector;
+
+CREATE OR REPLACE FUNCTION products_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector :=
+    setweight(to_tsvector('russian', unaccent(coalesce(NEW.name, '') || ' ' || coalesce(NEW.description, ''))), 'A')
     ||
-    setweight(to_tsvector('english', unaccent(name || ' ' || description)), 'B')
-  ) STORED;
+    setweight(to_tsvector('english', unaccent(coalesce(NEW.name, '') || ' ' || coalesce(NEW.description, ''))), 'B');
+  RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_products_search_vector_update ON products;
+
+CREATE TRIGGER trg_products_search_vector_update
+BEFORE INSERT OR UPDATE OF name, description
+ON products
+FOR EACH ROW
+EXECUTE FUNCTION products_search_vector_update();
+
+UPDATE products
+SET search_vector =
+  setweight(to_tsvector('russian', unaccent(coalesce(name, '') || ' ' || coalesce(description, ''))), 'A')
+  ||
+  setweight(to_tsvector('english', unaccent(coalesce(name, '') || ' ' || coalesce(description, ''))), 'B');
 
 CREATE INDEX IF NOT EXISTS idx_products_search_vector
   ON products USING GIN (search_vector);

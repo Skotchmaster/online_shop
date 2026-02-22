@@ -1,141 +1,206 @@
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,srvr,stat,mntr,conf,cons"
-    healthcheck:
-      test: ["CMD-SHELL", "echo 'ls /' | zookeeper-shell localhost:2181 >/dev/null 2>&1"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-    volumes:
-      - zk_data:/var/lib/zookeeper/data
-      - zk_log:/var/lib/zookeeper/log
-    networks: [backend]
-
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    env_file: [.env]
-    depends_on:
-      zookeeper: { condition: service_healthy }
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-
-      KAFKA_LISTENERS: PLAINTEXT://:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    networks: [backend]
-
-  db:
+  auth-db:
     image: postgres:16
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: auth_db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 2s
+      interval: 3s
       timeout: 3s
-      retries: 30
-      start_period: 5s
-    volumes: [pg_data:/var/lib/postgresql/data]
+      retries: 20
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
     networks: [backend]
 
-  dbtest:
+  cart-db:
     image: postgres:16
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME_TEST}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cart_db
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 2s
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
       timeout: 3s
-      retries: 30
-      start_period: 5s
-    networks:
-      backend:
-        aliases:
-          - db_test
-  migrate_main:
+      retries: 20
+    volumes:
+      - cart_db_data:/var/lib/postgresql/data
+    networks: [backend]
+
+  catalog-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: catalog_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - catalog_db_data:/var/lib/postgresql/data
+    networks: [backend]
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: order_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+    networks: [backend]
+
+  migrate-auth:
     image: migrate/migrate:4
     depends_on:
-      db:
+      auth-db:
         condition: service_healthy
     volumes:
-      - ./db/migrations:/migrations:ro
-    command: [
-      "-path", "/migrations",
-      "-database", "${DATABASE_URL}",
-      "up"
-    ]
+      - ./services/auth/db/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@auth-db:5432/auth_db?sslmode=disable", "up"]
     restart: "no"
     networks: [backend]
 
-  migrate_test:
+  migrate-cart:
     image: migrate/migrate:4
     depends_on:
-      dbtest:
+      cart-db:
         condition: service_healthy
     volumes:
-      - ./db/migrations:/migrations:ro
-    command: [
-      "-path", "/migrations",
-      "-database", "${DATABASE_URL_TEST}",
-      "up"
-    ]
-    restart: "no"   
-    networks: [backend] 
-
-  app:
-    build: .
-    depends_on:
-      migrate_main: {condition: service_completed_successfully}
-      db: { condition: service_healthy }
-      kafka: { condition: service_healthy }
-    env_file: [.env]
-    environment:
-      KAFKA_ADDRESS: kafka:9092
-    ports: ["8080:8080"]
+      - ./services/cart/db/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@cart-db:5432/cart_db?sslmode=disable", "up"]
+    restart: "no"
     networks: [backend]
 
-  tester:
-    build: { context: ., target: tester }
+  migrate-catalog:
+    image: migrate/migrate:4
     depends_on:
-      migrate_test: {condition: service_completed_successfully}
-      dbtest: { condition: service_healthy }
-      kafka:   { condition: service_healthy }
-    env_file: [.env]
-    environment:
-      DATABASE_URL: ${DATABASE_URL_TEST}
-      KAFKA_ADDRESS: kafka:9092
-    command: ["go","test","-v","-count=1","./tests/..."]
+      catalog-db:
+        condition: service_healthy
+    volumes:
+      - ./services/catalog/db/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@catalog-db:5432/catalog_db?sslmode=disable", "up"]
+    restart: "no"
     networks: [backend]
 
+  migrate-order:
+    image: migrate/migrate:4
+    depends_on:
+      order-db:
+        condition: service_healthy
+    volumes:
+      - ./services/order/db/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@order-db:5432/order_db?sslmode=disable", "up"]
+    restart: "no"
+    networks: [backend]
+
+  auth:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    environment:
+      AUTH_URL: ":8080"
+      DATABASE_URL: postgres://postgres:postgres@auth-db:5432/auth_db?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret}
+      REFRESH_SECRET: ${REFRESH_SECRET:-dev_refresh_secret}
+    depends_on:
+      migrate-auth:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  cart:
+    build:
+      context: .
+      dockerfile: services/cart/Dockerfile
+    environment:
+      SERVER_PORT: "8080"
+      AUTH_URL: http://auth:8080
+      DATABASE_URL: postgres://postgres:postgres@cart-db:5432/cart_db?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret}
+    depends_on:
+      auth:
+        condition: service_started
+      migrate-cart:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  catalog:
+    build:
+      context: .
+      dockerfile: services/catalog/Dockerfile
+    environment:
+      SERVICE_NAME: catalog
+      SERVER_PORT: "8080"
+      AUTH_URL: http://auth:8080
+      DATABASE_URL: postgres://postgres:postgres@catalog-db:5432/catalog_db?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret}
+    depends_on:
+      auth:
+        condition: service_started
+      migrate-catalog:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  order:
+    build:
+      context: .
+      dockerfile: services/order/Dockerfile
+    environment:
+      SERVICE_NAME: order
+      SERVER_PORT: "8080"
+      AUTH_URL: http://auth:8080
+      DATABASE_URL: postgres://postgres:postgres@order-db:5432/order_db?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret}
+    depends_on:
+      auth:
+        condition: service_started
+      migrate-order:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      GATEWAY_ADDR: :8080
+      AUTH_URL: http://auth:8080
+      CATALOG_URL: http://catalog:8080
+      CART_URL: http://cart:8080
+      ORDER_URL: http://order:8080
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret}
+    depends_on:
+      auth:
+        condition: service_started
+      cart:
+        condition: service_started
+      catalog:
+        condition: service_started
+      order:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    networks: [backend]
 
 volumes:
-  zk_data:
-  zk_log:
-  kafka_data:
-  pg_data:
-  es_data:
+  auth_db_data:
+  cart_db_data:
+  catalog_db_data:
+  order_db_data:
 
 networks:
   backend:
