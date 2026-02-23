@@ -1,0 +1,185 @@
+package httpserver
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/Skotchmaster/online_shop/pkg/logging"
+	"github.com/Skotchmaster/online_shop/services/catalog/internal/service"
+	"github.com/Skotchmaster/online_shop/services/catalog/internal/transport"
+	"github.com/Skotchmaster/online_shop/pkg/util"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+)
+type CatalogHTTP struct {
+	Svc *service.CatalogService
+}
+
+func (h *CatalogHTTP) GetProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "product.get_product")
+	
+	idParam := c.Param("id")
+	id, err := uuid.Parse(idParam)
+	if err != nil {
+		l.Warn("get_product_failed", "status", 400, "reason", "invalid product id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid product id")
+	}
+
+	product, err := h.Svc.GetProduct(ctx, id)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			l.Warn("get_product_failed", "status", 404, "reason", "product not found", "error", err)
+			return echo.NewHTTPError(http.StatusNotFound, "product not found")
+		}else {
+			l.Error("get_product_failed", "status", 500, "reason", "cannot get product", "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "cannot get product")
+		}
+	}
+
+	return c.JSON(http.StatusOK, product)
+}
+
+func (h *CatalogHTTP) GetProducts(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "product.get_products")
+
+	page := util.ParseIntDefault(c.QueryParam("page"), 1)
+	size := util.ParseIntDefault(c.QueryParam("size"), util.DefaultPageSize)
+
+	offset, limit := util.Calculate(page,size)
+
+	total, items, err := h.Svc.GetProducts(ctx, offset, limit)
+	if err != nil {
+		l.Error("get_products_error", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
+	}
+
+	l.Info("get_products_success")
+	return c.JSON(http.StatusOK, map[string]any{
+		"data": items,
+		"meta": map[string]any{
+			"page":        page,
+			"size":        limit,
+			"total":       total,
+			"total_pages": (total + int64(limit) - 1) / int64(limit),
+			"has_prev":    page > 1,
+			"has_next":    int64(offset+limit) < total,
+		},
+	})
+}
+
+func (h *CatalogHTTP) CreateProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "create_product")
+
+	var req transport.CreateProductRequest
+
+	if err := c.Bind(&req); err != nil {
+		l.Warn("product_create_error", "status", 400, "reason", "invalid body", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
+	}
+
+	CreatedProduct, err := h.Svc.CreateProduct(ctx, req)
+	if err != nil {
+		if errors.Is(err, service.ErrValidation) {
+			l.Warn("product_create_error", "status", 400, "reason", "invalid body", "error", err)
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
+		}
+		l.Error("product_create_error", "status", 500, "reason", "cannot add product to db", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot add product to db")
+	}
+
+	l.Info("create_product_success")
+	return c.JSON(http.StatusCreated, CreatedProduct)
+}
+
+func (h *CatalogHTTP) PatchProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "patch_product")
+
+	idParam := c.Param("id")
+	id, err := uuid.Parse(idParam)
+	if err != nil {
+		l.Warn("product_patch_error", "status", 400, "reason", "invalid product id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid product id")
+	}
+
+	var req transport.PatchProductRequest
+
+	if err := c.Bind(&req); err != nil {
+		l.Warn("product_patch_error", "status", 400, "reason", "invalid body", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
+	}
+
+	prod, err := h.Svc.PatchProduct(ctx, req, id)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound){
+			l.Warn("product_patch_error", "status", 404, "reason", "product not found", "error", err)
+			return echo.NewHTTPError(http.StatusNotFound, "product not found")
+		}
+		if errors.Is(err,  service.ErrValidation){
+			l.Warn("product_patch_error", "status", 400, "reason", "invalid body", "error", err)
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
+		} else {
+			l.Error("product_patch_error", "status", 500, "reason", "cannot add product to db", "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "cannot add product to db")
+		}
+	}
+
+	l.Info("patch_product_success")
+	return c.JSON(http.StatusOK, prod)
+}
+
+func (h *CatalogHTTP) DeleteProduct(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "delete_product")
+
+	idParam := c.Param("id")
+	id, err := uuid.Parse(idParam)
+	if err != nil {
+		l.Warn("product_delete_error", "status", 400, "reason", "invalid product id", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid product id")
+	}
+	if err := h.Svc.DeleteProduct(ctx, id); err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			l.Warn("product_delete_error", "status", 404, "reason", "product not found", "error", err)
+			return echo.NewHTTPError(http.StatusNotFound, "product not found")
+		}
+		l.Error("product_delete_error", "status", 500, "reason", "cannot delete product from db", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot delete product from db")
+	}
+
+	l.Info("delete_product_success")
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *CatalogHTTP) SearchProducts(c echo.Context) error {
+	ctx := c.Request().Context()
+	l := logging.FromContext(ctx).With("handler", "product.search_products")
+
+	q := c.QueryParam("q")
+	page := util.ParseIntDefault(c.QueryParam("page"), 1)
+	size := util.ParseIntDefault(c.QueryParam("size"), util.DefaultPageSize)
+	offset, limit := util.Calculate(page, size)
+
+	total, items, err := h.Svc.SearchProducts(ctx, q, offset, limit)
+	if err != nil {
+		l.Error("search_products_error", "status", 500, "reason", "internal error", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal error")
+	}
+
+	l.Info("search_products_success")
+	return c.JSON(http.StatusOK, map[string]any{
+		"data": items,
+		"meta": map[string]any{
+			"query":       q,
+			"page":        page,
+			"size":        limit,
+			"total":       total,
+			"total_pages": (total + int64(limit) - 1) / int64(limit),
+			"has_prev":    page > 1,
+			"has_next":    int64(offset+limit) < total,
+		},
+	})
+}

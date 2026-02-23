@@ -1,277 +1,312 @@
 # Online Shop
 
-**Цель проекта**
-Продемонстрировать настройку и взаимодействие компонентов полного бэкенд‑стека:
+Учебный backend интернет-магазина на Go в формате микросервисов.
 
-* Аутентификация и авторизация с помощью JWT
-* Асинхронная обработка бизнес‑событий через Apache Kafka
-* Хранение и миграция данных в PostgreSQL с использованием GORM
-* Реализация REST API на основе Echo
-* Управление созданием и изменением товаров только для админа
-* Управление состоянием корзины и оформление заказов
-* Поддержка ролей (`user`, `admin`) для разных операций
-* Интеграционные тесты через `testing.t`
-* Полнотекстовый поиск по товарам (PostgreSQL FTS: `tsvector`, `unaccent`, `pg_trgm`)
-* Настройка Docker-compose и Dockerfile
+**Цель проекта**  
+Продемонстрировать практическую реализацию backend интернет-магазина в микросервисной архитектуре на Go:
 
----
+- Аутентификация и авторизация через JWT cookies (`accessToken`/`refreshToken`)
+- Ротация refresh-токенов и поддержка auto-refresh сессии
+- Разграничение доступа по ролям (`user`, `admin`)
+- Единая точка входа через `gateway` и reverse proxy на внутренние сервисы
+- Реализация REST API на Echo для auth, catalog, cart и order доменов
+- Хранение данных в PostgreSQL с отдельной БД на каждый сервис
+- Миграции и инициализация схем через Docker Compose
+- Защита mutating-запросов через CSRF (`XSRF-TOKEN` + `X-CSRF-Token`)
+- Полнотекстовый и триграммный поиск по товарам (PostgreSQL FTS: `tsvector`, `unaccent`, `pg_trgm`)
+- Обеспечение базовой отказоустойчивости и производительности (таймауты, connection pool, healthchecks)
+- Полный локальный запуск всей инфраструктуры через Docker Compose
 
 ## Содержание
 
-1. [Описание проекта](#описание-проекта)
-2. [Стек технологий](#стек-технологий)
+1. [Что реализовано](#что-реализовано)
+2. [Архитектура](#архитектура)
 3. [Структура репозитория](#структура-репозитория)
-4. [Установка и запуск](#установка-и-запуск)
-5. [Настройка окружения](#настройка-окружения)
-6. [API Endpoints](#api-endpoints)
-7. [Аутентификация и JWT](#аутентификация-и-jwt)
-8. [Kafka-события](#kafka-события)
-9. [Работа с базой данных](#работа-с-базой-данных)
-10. [Интеграционные тесты](#интеграционные-тесты)
-11. [Docker и контейнеры](#docker-и-контейнеры)
+4. [Поток запроса](#поток-запроса)
+5. [Запуск проекта](#запуск-проекта)
+6. [Конфигурация .env](#конфигурация-env)
+7. [API (через gateway)](#api-через-gateway)
+8. [Безопасность](#безопасность)
+9. [Почему выдерживает большую нагрузку](#почему-выдерживает-большую-нагрузку)
+10. [TODO (план на будущее)](#todo-план-на-будущее)
 
----
+## Что реализовано
 
-## Описание проекта
+- аутентификация и сессии через JWT cookies (`accessToken` + `refreshToken`);
+- регистрация, login, refresh, logout;
+- роли пользователей (`user`, `admin`) и проверка прав доступа;
+- каталог товаров: список, карточка, поиск, admin CRUD;
+- корзина: добавить товар, удалить одну позицию, очистить полностью;
+- заказы: создание, просмотр, отмена, смена статуса (admin);
+- CSRF middleware для mutating-запросов;
+- единый docker-compose для локального запуска всех сервисов.
 
-Проект представляет собой демонстрацию бэкенд-сервиса для интернет-магазина. Включает в себя:
+## Архитектура
 
-* Регистрацию и аутентификацию пользователей
-* Выдачу и проверку JWT (access и refresh токены)
-* CRUD-операции над товарами (только для админов)
-* Управление корзиной пользователя
-* Асинхронную отправку событий в Kafka
-* Хранение данных в PostgreSQL через GORM
-* Полнотекстовый поиск по товарам на стороне PostgreSQL (FTS)
-* Контейнеризация и запуск через Docker/Docker Compose
+Сервисы:
 
-## Стек технологий
-
-* Язык: Go 1.24
-* Веб-фреймворк: [Echo](https://echo.labstack.com/)
-* ORM: [GORM](https://gorm.io/) + PostgreSQL
-* Поиск: **PostgreSQL FTS** (`tsvector` + `unaccent` + `pg_trgm`)
-* Аутентификация: JWT (HS256)
-* Сообщения: Apache Kafka (Confluent Platform)
-* Контейнеризация: Docker + Docker Compose
-* Тестирование: t.testing
-* Логирование: встроенный логгер Echo
-* Конфигурация: переменные окружения
+- `gateway` - единая точка входа (`http://localhost:8080`), reverse proxy на внутренние сервисы;
+- `services/auth` - регистрация, login, refresh/logout, роли, хранение refresh-токенов;
+- `services/catalog` - товары и поиск;
+- `services/cart` - корзина пользователя;
+- `services/order` - заказы и переходы статусов;
+- `pkg` - общий код для всех сервисов (middleware, jwt, config, db, logging, util, auth client).
 
 ## Структура репозитория
 
+```text
+.
+├── docker-compose.yml                        # оркестрация всех сервисов, БД и миграций
+├── go.work                                   # связывает Go-модули в одном workspace
+├── .env.example                              # шаблон переменных окружения
+├── gateway/                                  # входная точка API и маршрутизация в сервисы
+│   ├── cmd/
+│   │   └── gateway/
+│   │       └── main.go                       # bootstrap gateway (server, config, middleware)
+│   ├── internal/
+│   │   ├── config/                           # чтение env и валидация обязательных настроек
+│   │   ├── httpserver/                       # proxy и регистрация внешних маршрутов
+│   │   └── middleware/                       # JWT/secure headers/logging/recover
+│   ├── Dockerfile                            # образ gateway
+│   └── go.mod                                # модуль gateway
+├── services/                                 # доменные микросервисы
+│   ├── auth/                                 # users, login, refresh, logout, роли
+│   │   ├── cmd/auth/main.go
+│   │   ├── db/migrations/                    # SQL схема auth сервиса
+│   │   ├── internal/
+│   │   │   ├── config/
+│   │   │   ├── httpserver/                   # auth handlers и роутинг
+│   │   │   ├── middleware/                   # service-level auth middleware
+│   │   │   ├── models/                       # модели пользователей и токенов
+│   │   │   ├── repo/                         # доступ к auth БД
+│   │   │   ├── service/                      # бизнес-логика auth
+│   │   │   └── transport/                    # request/response DTO
+│   │   ├── Dockerfile                        # образ auth
+│   │   └── go.mod                            # модуль auth
+│   ├── cart/                                 # корзина пользователя
+│   │   ├── cmd/cart/main.go
+│   │   ├── db/migrations/                    # SQL схема cart сервиса
+│   │   ├── internal/
+│   │   │   ├── config/
+│   │   │   ├── httpserver/                   # cart handlers и роутинг
+│   │   │   ├── models/                       # модели корзины
+│   │   │   ├── repo/                         # доступ к cart БД
+│   │   │   ├── service/                      # бизнес-логика cart
+│   │   │   └── transport/                    # request/response DTO
+│   │   ├── Dockerfile                        # образ cart
+│   │   └── go.mod                            # модуль cart
+│   ├── catalog/                              # каталог товаров и поиск
+│   │   ├── cmd/catalog/main.go
+│   │   ├── db/migrations/                    # SQL схема catalog сервиса
+│   │   ├── internal/
+│   │   │   ├── config/
+│   │   │   ├── httpserver/                   # catalog handlers и роутинг
+│   │   │   ├── models/                       # модели товаров
+│   │   │   ├── repo/                         # доступ к catalog БД
+│   │   │   ├── service/                      # бизнес-логика catalog
+│   │   │   └── transport/                    # request/response DTO
+│   │   ├── Dockerfile                        # образ catalog
+│   │   └── go.mod                            # модуль catalog
+│   └── order/                                # заказы и переходы статусов
+│       ├── cmd/order/main.go
+│       ├── db/migrations/                    # SQL схема order сервиса
+│       ├── internal/
+│       │   ├── config/
+│       │   ├── httpserver/                   # order handlers и роутинг
+│       │   ├── models/                       # модели заказов и items
+│       │   ├── repo/                         # доступ к order БД
+│       │   ├── service/                      # бизнес-логика order
+│       │   └── transport/                    # request/response DTO
+│       ├── Dockerfile                        # образ order
+│       └── go.mod                            # модуль order
+└── pkg/                                      # общий переиспользуемый код
+    ├── authclient/                           # HTTP клиент к auth (refresh/validation)
+    ├── config/                               # общие env/config helper-функции
+    ├── db/                                   # открытие и настройка подключения к БД
+    ├── hash/                                 # хеширование паролей
+    ├── jwt/                                  # cookie helpers и JWT utility
+    ├── logging/                              # инициализация slog логера
+    ├── middleware/                           # общие middleware
+    │   ├── auth/                             # auto-refresh middleware
+    │   ├── csrf/                             # CSRF защита
+    │   └── logging/                          # request logging middleware
+    ├── tokens/                               # типы claims и парсинг JWT
+    └── util/                                 # вспомогательные функции
 ```
-├── cmd/server                          # Точка входа приложения
-├──db
-|   ├── migrations                      # Миграции для бд
-├── internal
-│   ├── handlers 
-│   │   ├── auth.go                     # Хэндлеры для авторизации
-│   │   ├── product.go                  # Хэндлеры для товаров
-|   |   ├── search.go                   # Хэндлеры для поисковой строки
-│   │   └── cart
-│   │         ├── cart_handlers.go      # Хэндлеры для корзины
-│   │         └── cart.helpers.go       # Вспомогательные функции для хэндлеров для корзины
-│   ├── config                          # Файл с получением данныех из .env файла
-│   ├── models                          # Модели GORM (User, Product, CartItem, RefreshToken)
-│   ├── mykafka                         # Обёртка для Kafka-производителя
-│   ├── hash                            # Утилиты для хеширования паролей
-│   ├── service
-|   |   ├──token
-│   |   |   ├── token_helpers           # Функции для работы токен сервисов
-│   |   |   └── token_service           # Основные функции для работы токенов
-|   |   └──search
-|   |       └──search.go                # Функции для работы search хэндлеров
-|   ├──util                             # Пагинация для поисковой строки
-|   └──transport                        # Регистрация end-point-ов
-├── Dockerfile                          # Сборка образа приложения
-├── docker-compose.yml                  # Оркестрация контейнеров (app, db, kafka, zookeeper)
-├── go.mod
-├── go.sum
-├── .env
-└── README.md               # Этот файл
-```
 
-## Установка и запуск
+## Поток запроса
 
-1. **Клонируйте репозиторий**
+1. Клиент отправляет запрос в `gateway`.
+2. Gateway прогоняет common middleware (recover/request-id/logger/secure headers).
+3. Для защищенных путей gateway проверяет `accessToken` cookie и достает claims (user_id, role).
+4. Для mutating запросов CSRF middleware проверяет `Origin` + `X-CSRF-Token`.
+5. Gateway проксирует запрос в нужный сервис (`auth` / `catalog` / `cart` / `order`).
+6. Сервис выполняет бизнес-логику и обращается только к своей БД.
+7. Если в auth нужен refresh, сервис/ middleware обновляет токены и возвращает новые cookies.
+8. Ответ возвращается клиенту через gateway с единым внешним API.
 
-   ```bash
-   git clone https://github.com/Skotchmaster/online_shop.git
-   cd online_shop
-   ```
+## Запуск проекта
 
-## Настройка окружения
-
-Переменные окружения, необходимые для работы:
-
-```env
-DB_HOST=db
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=root
-DB_NAME=online_shop
-DB_NAME_TEST=test_db
-
-DATABASE_URL=postgres://postgres:root@db:5432/online_shop?sslmode=disable
-DATABASE_URL_TEST=postgres://postgres:root@dbtest:5432/test_db?sslmode=disable
-
-KAFKA_ADDRESS=kafka:9092
-
-JWT_SECRET=yourAccessSecret
-REFRESH_SECRET=yourRefreshSecret
-```
-
-## API Endpoints
-
-### Публичные
-
-* **POST /register** — регистрация пользователя
-* **POST /login** — логин и выдача `access_token` + `refresh_token`
-* **POST /logout** - выход из аккаунта
-* **GET /health/live** - проверка работоспособности приложения
-
-### Защищённые (JWT Middleware)
-
-#### Товары (только роль `admin`)
-
-* **POST /product** — создать товар
-* **PATCH /product/\:id** — обновить товар
-* **DELETE /product/\:id** — удалить товар
-
-#### Корзина (роль `user` или `admin`)
-
-* **GET /product/\:id** - посмотреть товар подробнее
-* **GET /cart** — получить список товаров в корзине
-* **POST /cart** — добавить товар в корзину (body: `{ProductID, Quantity}`)
-* **DELETE /cart/\:id** — уменьшить количество или удалить товар
-* **DELETE /cart/\:id?all=true** — удалить все единицы товара из корзины
-* **POST /cart/order** — создать заказ
-
-> Также реализован **поиск по товарам на стороне PostgreSQL FTS** (эндпоинт `/search`, параметры: `q`, `page`, `size`).
-
-## Аутентификация и JWT
-
-* **Access Token** (HS256, 15 мин по умолчанию)
-
-  * Выдается при `/login`
-  * Содержит `sub` (UserID), `role`, `exp`,
-* **Refresh Token** (HS256, 7 дней)
-
-  * Содержит `sub`, `exp`, `typ = refresh`
-  * Хранится в БД для возможности отзыва
-
-## Kafka-события
-
-При ключевых операциях отправляются события в топик:
-
-* `user_events` - регистрация, вход, выход из аккаунта
-* `product_events` — создание, обновление, удаление товаров
-* `cart_events` — получение, добавление, удаление в корзине
-
-Формат события — JSON с полями `type`, `UserID`, дополнительными данными.
-
-## Работа с базой данных
-
-* Инициализация через `config.InitDB()`
-* Модели GORM в `internal/models`
-* Миграция таблиц расположена в db/migrations
-
-### FTS в PostgreSQL
-
-* Миграция `db/migrations/0002_fts.up.sql` включает расширения `unaccent` и `pg_trgm`.
-* Добавляется колонка `products.search_vector tsvector` и **триггер** на обновление при изменении `name`/`description`.
-* Индексы: `GIN(search_vector)`, а также `GIN(name gin_trgm_ops)` и `GIN(description gin_trgm_ops)` для триграммных совпадений.
-* Поисковые запросы используют FTS (ранжирование) с фолбэком по триграммной похожести.
-
-## Docker и контейнеры
-
-В проекте предусмотрен запуск всего окружения через **Docker Compose**, что позволяет поднять приложение, базу данных и брокер сообщений одной командой.
-
-### Сервисы Compose (по умолчанию)
-
-* **server** — Go‑приложение (порт `8080` внутри контейнера, проброшен на `localhost:8080`). Зависит от `db` и `kafka`.
-* **db** — PostgreSQL (данные в томе `pgdata`). Расширения `unaccent` и `pg_trgm` включаются миграциями; используются FTS‑индексы.
-* **dbtest** — PostgreSQL бд для работы тестов. Включаются миграциями; используются FTS‑индексы.
-* **zookeeper** — координация для Kafka (порт `2181`).
-* **kafka** — брокер сообщений (порт `9092` внутри сети Compose; доступен другим контейнерам по `kafka:9092`).
-* **migrate\_main** / **migrate\_test** — одноразовые контейнеры для применения SQL‑миграций к основной и тестовой БД.
-* **tester** — одноразовый контейнер, запускает `go test`.
-
-#### Детали контейнеров
-
-* **appr**
-  Роль: HTTP‑API приложения.
-  Порты: внутр. `8080` → наружу `localhost:8080`.
-  Окружение: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `KAFKA_ADDRESS`, `ACCESS_SECRET_`, `REFRESH_SECRET_`.
-  Зависимости: `db`, `kafka`. Стартует после доступности БД и брокера.
-  Логи: `docker compose logs -f server`.
-
-* **db / dbtest (PostgreSQL)**
-  Роль: основная БД. / БД для тестов  
-  Данные: том `pgdata` (сохраняет данные между перезапусками).
-  Расширения: `unaccent`, `pg_trgm` включаются миграциями (нужны для FTS).
-
-* **zookeeper**
-  Роль: сервис координации для Kafka.
-  Порты: `2181` внутри сети Compose.
-  Используется только брокером Kafka и не нужен приложению напрямую.
-
-* **kafka**
-  Роль: брокер сообщений.
-  Сетевые настройки: доступен другим контейнерам по `kafka:9092`.
-  Используется для публикации событий `user_events`, `product_events`, `cart_events`.
-
-* **migrate\_main / migrate\_test**
-  Роль: одноразовые контейнеры, запускают SQL‑миграции из каталога миграций для основной и тестовой БД.
-  Поведение: старт → применяют миграции → завершаются.
-
-* **tester**
-  Роль: одноразовый контейнер для запуска тестов (`go test`).
-  Поведение: старт → тесты → завершение c кодом статуса.
-
-## Интеграционные тесты
-
-В папке `tests/` собраны интеграционные тесты для основных компонентов бэкенда онлайн-магазина.
-
-### Запуск тестов
-
-В корне репозитория выполните:
+1) Скопируй env:
 
 ```bash
-go test ./tests -v
+cp .env.example .env
 ```
 
-### Структура папки `tests/`
+2) Подними окружение:
 
-* `auth_handlers_test.go` — покрывает регистрацию, логин и логаут (AuthHandler).
-* `cart_handlers_test.go` — тестирует работу с корзиной: добавление, удаление позиций, создание заказа.
-* `prosuct_handlers_test.go` — тестирует работу с продуктами: создаение, обновление и удаление товара
-* `configTests.go` - вспомогательные функции для тестов
+```bash
+docker compose up --build -d
+```
 
----
+3) Проверь состояние:
 
-## Подробное описание тестов
+```bash
+docker compose ps
+docker compose logs -f gateway
+```
 
-### `auth_handlers_test.go`
+4) Остановить:
 
-* **TestRegister**: проверяет успешную регистрацию нового пользователя, хеширование пароля и обработку дубликатов (HTTP 400 при повторной регистрации).
-* **TestLogin**: проверяет корректный вход с верными учетными данными (возврат access и refresh токенов) и отказ при неверном пароле (HTTP 401).
-* **TestLogOut**: проверяет корректный выход пользователя, удаление/истечение токенов и возврат сообщения "logged out".
+```bash
+docker compose down
+```
 
-### `cart_handlers_test.go`
+## Конфигурация `.env`
 
-* **TestAddToCart**: проверяет добавление товара в корзину через `POST /api/cart`, правильность JSON-ответа (`models.CartItem`) и сохранение в БД.
-* **TestGetCart**: проверяет получение списка товаров из корзины через `GET /api/cart`, валидацию авторизации по `refreshToken` и формат ответа (`[]models.CartItem`).
-* **TestDeleteOneFromCart**: проверяет уменьшение количества товара, передачу параметра `id` через путь и JSON-тело `{quantity, product_id}`; убеждается, что количество в БД уменьшилось.
-* **TestDeleteAllFromCart**: проверяет полное удаление товара из корзины при `quantity = 0` и отсутствие записи в БД.
-* **TestMakeOrder**: проверяет создание заказа из всех позиций корзины через `POST /api/cart/order`, создание записей в таблицах `orders` и `order_items`, корректность подсчета `total` и формирование JSON-ответа (`OrderResponse`).
+Проект использует один корневой `.env`.
 
-### `product_handlers_test.go`
+```env
+JWT_SECRET=change_me_access_secret                                                           # секрет подписи access токенов
+REFRESH_SECRET=change_me_refresh_secret                                                      # секрет подписи refresh токенов
 
-* **TestGetProduct**: проверяет получение товара: логин обычного пользователя, вставка тестового продукта в БД, затем `GET /api/product/{id}` → ожидается **200 OK** и полное совпадение всех полей ответа с исходными данными.
-* **TestCreateProduct**: проверяет создание товара админом: после успешного логина выполняется `POST /api/product` с корректным JSON; ожидается **201 Created** и тело ответа с новым `ID`.
-* **TestPatchProduct**: проверяет частичное обновление: админ создаёт товар, выполняется `PATCH /api/product/{id}` с изменёнными полями; ожидается **200 OK** и ответ с обновлёнными значениями в БД.
-* **TestDeleteProduct**: проверяет удаление: админ через `DELETE /api/product/{id}` должен получить **204 No Content**, что обозначает успешное удаление записи.
+DB_USER=postgres                                                                             # пользователь PostgreSQL
+DB_PASSWORD=postgres                                                                         # пароль PostgreSQL (секрет)
 
+AUTH_DB_NAME=auth_db                                                                         # имя БД сервиса auth
+CART_DB_NAME=cart_db                                                                         # имя БД сервиса cart
+CATALOG_DB_NAME=catalog_db                                                                   # имя БД сервиса catalog
+ORDER_DB_NAME=order_db                                                                       # имя БД сервиса order
 
+AUTH_DATABASE_URL=postgres://postgres:postgres@auth-db:5432/auth_db?sslmode=disable          # подключение auth -> auth-db
+CART_DATABASE_URL=postgres://postgres:postgres@cart-db:5432/cart_db?sslmode=disable          # подключение cart -> cart-db
+CATALOG_DATABASE_URL=postgres://postgres:postgres@catalog-db:5432/catalog_db?sslmode=disable # подключение catalog -> catalog-db
+ORDER_DATABASE_URL=postgres://postgres:postgres@order-db:5432/order_db?sslmode=disable       # подключение order -> order-db
+
+AUTH_BIND_ADDR=:8080                                                                         # адрес запуска auth HTTP сервера
+AUTH_INTERNAL_URL=http://auth:8080                                                           # внутренний URL auth для сервисов
+CATALOG_INTERNAL_URL=http://catalog:8080                                                     # внутренний URL catalog для gateway
+CART_INTERNAL_URL=http://cart:8080                                                           # внутренний URL cart для gateway
+ORDER_INTERNAL_URL=http://order:8080                                                         # внутренний URL order для gateway
+GATEWAY_ADDR=:8080                                                                           # адрес запуска gateway
+```
+
+## API (через gateway)
+
+База:
+
+```text
+http://localhost:8080
+```
+
+Auth:
+
+- `POST /api/v1/auth/register` - регистрирует нового пользователя.
+- `POST /api/v1/auth/login` - выдает `accessToken` и `refreshToken` cookies.
+- `POST /api/v1/auth/refresh` - обновляет пару токенов по refresh cookie.
+- `POST /api/v1/auth/logout` - очищает auth cookies и завершает сессию.
+
+Catalog:
+
+- `GET /api/v1/catalog/products` - возвращает список товаров с пагинацией.
+- `GET /api/v1/catalog/products/:id` - возвращает карточку товара по id.
+- `GET /api/v1/catalog/products/search?q=...&page=1&size=10` - ищет товары по текстовому запросу.
+- `POST /api/v1/catalog/products` (admin) - создает новый товар.
+- `PATCH /api/v1/catalog/products/:id` (admin) - обновляет поля товара.
+- `DELETE /api/v1/catalog/products/:id` (admin) - удаляет товар.
+
+Cart:
+
+- `GET /api/v1/cart` - возвращает текущую корзину пользователя.
+- `POST /api/v1/cart` - добавляет товар в корзину.
+- `DELETE /api/v1/cart/items` - удаляет одну позицию из корзины.
+- `DELETE /api/v1/cart` - очищает корзину полностью.
+
+Orders:
+
+- `GET /api/v1/orders` - список заказов текущего пользователя.
+- `GET /api/v1/orders/:id` - детали конкретного заказа.
+- `POST /api/v1/orders` - создает заказ.
+- `POST /api/v1/orders/:id/cancel` - отменяет заказ пользователя.
+- `PATCH /api/v1/orders/:id` (admin) - меняет статус заказа.
+
+Health:
+
+- `GET /health/live` - liveness check.
+- `GET /health/ready` - readiness check.
+
+## Безопасность
+
+В проекте используется несколько слоев защиты.
+
+JWT и роли:
+
+- access token хранится в `accessToken` cookie;
+- refresh token хранится в `refreshToken` cookie;
+- gateway проверяет access token на защищенных маршрутах;
+- роль из claims (`user`/`admin`) используется для ограничения admin-операций.
+
+Middleware:
+
+- при login пользователь получает пару токенов;
+- при `POST /api/v1/auth/refresh` auth сервис выдает новую пару токенов;
+- refresh токены ротируются и хранятся в БД в хешированном виде;
+- в проекте есть auto-refresh middleware: если access token истек, middleware пытается обновить токены по refresh и продолжить запрос без повторного логина.
+
+CSRF:
+
+- для mutating-запросов (`POST/PUT/PATCH/DELETE`) проверяется CSRF токен;
+- токен передается через cookie/header (`XSRF-TOKEN` + `X-CSRF-Token`);
+- включена проверка same-origin;
+- для технических/публичных путей используется `SkipPaths`.
+
+## Производительность
+
+В проекте есть технические решения для стабильной работы под ростом трафика.
+
+Декомпозиция и изоляция:
+
+- backend разделен на отдельные сервисы (`auth`, `catalog`, `cart`, `order`) с собственными БД;
+- нагрузка по доменам изолируется: тяжелые запросы поиска в `catalog` меньше влияют на `auth` и `cart`;
+
+Пулы соединений и эффективная работа с БД:
+
+- для БД настроен connection pool (`MaxOpenConns`, `MaxIdleConns`);
+- в GORM включен `PrepareStmt`, что снижает накладные расходы на повторяющиеся SQL-запросы;
+- при старте есть `PingContext` с таймаутом, чтобы сервис не принимал трафик с неготовой БД.
+
+Оптимизация запросов и ограничение тяжелых операций:
+
+- пагинация и лимиты (`size` ограничен до 100) не дают одному запросу читать слишком много данных;
+- в миграциях добавлены индексы под частые сценарии (`cart_items`, `orders`, `order_items`, `refresh_tokens`);
+- для каталога есть GIN/TRGM/FTS индексы и `tsvector`-триггер для быстрого полнотекстового поиска.
+
+Устойчивость сети и HTTP-слоя:
+
+- в gateway и сервисах настроены `ReadTimeout`, `WriteTimeout`, `ReadHeaderTimeout`;
+- в reverse proxy и auth HTTP-клиенте включены keep-alive и пулы idle-коннектов;
+- это снижает риск зависаний медленных соединений и уменьшает overhead на частых внутренних вызовах.
+
+Доступность в Docker-окружении:
+
+- у PostgreSQL-сервисов включены healthcheck'и;
+- миграции стартуют только после готовности БД;
+- для основных сервисов включен `restart: unless-stopped`, что улучшает восстановление после сбоев.
+
+## TODO (план на будущее)
+
+- [ ] Добавить внутренние gRPC связи: `order -> catalog` для `POST /api/v1/orders`, `POST /api/v1/orders/:id/cancel`, `PATCH /api/v1/orders/:id`.
+- [ ] Добавить внутренние gRPC связи: `cart -> catalog` для `POST /api/v1/cart`.
+- [ ] Опционально перейти на gRPC для auth-интеграций: `gateway/order/cart/catalog -> auth`.
+- [ ] Добавить unit/integration/e2e тесты для ключевых бизнес-сценариев.
+- [ ] Добавить метрики и трассировку для наблюдаемости.
