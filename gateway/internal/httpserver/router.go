@@ -4,14 +4,16 @@ import (
 	"net/http"
 
 	"github.com/Skotchmaster/online_shop/gateway/internal/middleware"
+	"github.com/Skotchmaster/online_shop/pkg/middleware/csrf"
 	"github.com/labstack/echo/v4"
 )
 
 type Deps struct {
-	AuthURL string
-	CartURL string
+	AuthURL    string
+	CartURL    string
 	CatalogURL string
-	OrderURL string
+	OrderURL   string
+	CSRFConfig csrf.Config
 
 	JWTSecret []byte
 }
@@ -23,6 +25,8 @@ func Register(e *echo.Echo, d *Deps) error {
 	for _, m := range middleware.Common() {
 		e.Use(m)
 	}
+
+	e.Use(csrf.Middleware(d.CSRFConfig))
 
 	authProxy, err := newProxy(d.AuthURL, "/api/v1/auth")
 	if err != nil {

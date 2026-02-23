@@ -11,6 +11,7 @@ import (
 
 	"github.com/Skotchmaster/online_shop/gateway/internal/config"
 	"github.com/Skotchmaster/online_shop/gateway/internal/httpserver"
+	"github.com/Skotchmaster/online_shop/pkg/middleware/csrf"
 	"github.com/labstack/echo/v4"
 )
 
@@ -21,12 +22,15 @@ func main() {
 	e.Server.ReadTimeout = 10 * time.Second
 	e.Server.WriteTimeout = 15 * time.Second
 	e.Server.ReadHeaderTimeout = 3 * time.Second
+	csrf := csrf.DefaultConfig()
+	csrf.SkipPaths = []string{"/health/live", "/health/ready", "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
 
 	if err := httpserver.Register(e, &httpserver.Deps{
 		AuthURL:    cfg.AuthURL,
 		CatalogURL: cfg.CatalogURL,
 		CartURL:    cfg.CartURL,
 		OrderURL:   cfg.OrderURL,
+		CSRFConfig: csrf,
 		JWTSecret:  cfg.JWTSecret,
 	}); err != nil {
 		log.Fatal(err)
