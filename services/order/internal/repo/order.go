@@ -41,7 +41,7 @@ func(r *GormRepo) GetOrder(ctx context.Context, id uuid.UUID) (*models.Order, er
 }
 
 func(r *GormRepo) UpdateOrder(ctx context.Context, id uuid.UUID, prev models.OrderStatus, curr models.OrderStatus) (*models.Order, error) {
-	res := r.DB.WithContext(ctx).Where("id = ? AND status = ?", id, prev).Update("status", curr)
+	res := r.DB.WithContext(ctx).Model(&models.Order{}).Where("id = ? AND status = ?", id, prev).Update("status", curr)
 
 	if res.Error != nil {
 		return nil, res.Error
@@ -65,7 +65,7 @@ func(r *GormRepo) UpdateOrder(ctx context.Context, id uuid.UUID, prev models.Ord
 }
 
 func(r *GormRepo) CancelOrder(ctx context.Context, id uuid.UUID, status models.OrderStatus) (*models.Order, error) {
-	res := r.DB.WithContext(ctx).Where("id = ? AND status = ?", id, status).Update("status", models.OrderStatusCancelled)
+	res := r.DB.WithContext(ctx).Model(&models.Order{}).Where("id = ? AND status = ?", id, status).Update("status", models.OrderStatusCancelled)
 
 	if res.Error != nil {
 		return nil, res.Error
