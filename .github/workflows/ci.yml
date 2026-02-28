@@ -2,35 +2,33 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
+  workflow_dispatch:
 
 jobs:
-  tests:
+  go-test:
     runs-on: ubuntu-latest
-    environment: ci
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - gateway
+          - pkg
+          - services/auth
+          - services/cart
+          - services/catalog
+          - services/order
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write .env from environment secret
-        run: |
-          printf '%s' "${{ secrets.ENV_CI }}" | tr -d '\r' > .env
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
 
-      - name: Build images
-        run: docker compose --env-file .env build --no-cache
-
-      - name: Start deps in background
-        run: docker compose --env-file .env up -d
-
-      - name: Run tester and fail if tests fail
-        run: docker compose --env-file .env up tester --no-build --exit-code-from tester
-
-      - name: Show tester logs on failure
-        if: failure()
-        run: docker compose --env-file .env logs --no-color tester | tail -n 1000
-
-      - name: Cleanup
-        if: always()
-        run: docker compose --env-file .env down -v
+      - name: Go test (${{ matrix.module }})
+        working-directory: ${{ matrix.module }}
+        run: go test -v -count=1 ./...
